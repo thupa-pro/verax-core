@@ -1,7 +1,7 @@
 # Axiom Protocol
 
 [![CI](https://github.com/thupa-pro/axiom-core/actions/workflows/ci.yml/badge.svg)](https://github.com/thupa-pro/axiom-core/actions/workflows/ci.yml)
-[![Axiom-True v1.0](https://img.shields.io/badge/Axiom-True_v1.0-2ea44f?logo=checkmarx&style=flat)](https://github.com/thupa-pro/axiom-core/actions/workflows/axiom-compliance.yml)
+[![Axiom-True](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/thupa-pro/axiom-core/main/.github/badges/axiom-true-status.json&color=2ea44f)](https://github.com/thupa-pro/axiom-core/actions/workflows/axiom-compliance.yml)
 [![cargo-deny](https://img.shields.io/badge/cargo--deny-passed-brightgreen)](https://github.com/thupa-pro/axiom-core/actions/workflows/axiom-compliance.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)

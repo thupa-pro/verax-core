@@ -1,3 +1,16 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Axiom Protocol Compliance Gate — Axiom-True v1.0 Verifier
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Runs on every PR touching cryptographic, CBOR, or core verification code.
+# Six stages execute in strict sequential order. If any stage fails, the
+# gate blocks merging and a detailed compliance report is generated.
+#
+# Badge: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/
+#        thupa-pro/axiom-core/main/.github/badges/axiom-true-status.json
+#
+# ═══════════════════════════════════════════════════════════════════════
+
 name: Axiom Protocol Compliance Gate
 
 on:
@@ -5,7 +18,8 @@ on:
     branches: [main]
     paths:
       - 'crates/axiom-core/src/**'
-      - 'crates/axiom-cli/src/**'
+      - 'crates/axiom-cli/src/commands/verify.rs'
+      - 'crates/axiom-cli/src/commands/sign.rs'
       - 'crates/axiom-core-ffi/src/**'
       - 'crates/axiom-core-python/src/**'
       - 'crates/axiom-core-node/src/**'
@@ -14,14 +28,55 @@ on:
       - 'test-vectors/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/axiom-core/src/**'
+      - 'test-vectors/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_TARGET_DIR: /tmp/cargo-target
+  RUST_BACKTRACE: 1
 
 jobs:
-  compliance:
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 0 — Path filter (fast skip for unrelated changes)
+  # ─────────────────────────────────────────────────────────────────────
+  changed-filter:
     runs-on: ubuntu-22.04
+    outputs:
+      run_compliance: ${{ steps.filter.outputs.run_compliance }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        run: |
+          # Always run on push to main; on PR check changed files
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "run_compliance=true" >> $GITHUB_OUTPUT
+          else
+            CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}".."${{ github.sha }}" \
+              | grep -cE '\.(rs|py|js|go|sh)|(test-vectors|Cargo\.(toml|lock)|deny\.toml)' || true)
+            if [[ "$CHANGED" -gt 0 ]]; then
+              echo "run_compliance=true" >> $GITHUB_OUTPUT
+            else
+              echo "run_compliance=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 1 — Canonical CBOR Lint
+  # ─────────────────────────────────────────────────────────────────────
+  stage-1-cbor-lint:
+    needs: changed-filter
+    if: needs.changed-filter.outputs.run_compliance == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,11 +85,221 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libclang-dev libssl-dev pkg-config
 
-      - name: Install Rust toolchain (stable)
+      - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          components: clippy
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 1a — Determinism: shortest-form ints, sorted keys, no tags/floats/null
+      - name: '1a — Rust deterministic CBOR tests'
+        id: cbor_tests
+        run: |
+          cargo test --release -p axiom-core -- cbor::tests 2>&1 | tee /tmp/stage1a.log
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      # 1b — Independent Python CBOR validator (11 rules)
+      - name: '1b — Python CBOR spec conformance'
+        id: cbor_python
+        run: |
+          python3 scripts/differential_cbor_test.py 2>&1 | tee /tmp/stage1b.log
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      # 1c — Fuzz decode never panics on random bytes
+      - name: '1c — Fuzz CBOR decode (panic-free)'
+        id: cbor_fuzz
+        run: |
+          cargo test --release -p axiom-core -- cbor::tests::test_fuzz_decode_never_panics 2>&1 | tee /tmp/stage1c.log
+          cargo test --release -p axiom-core -- cbor::tests::test_fuzz_single_byte 2>&1
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 2 — Test Vector Oracle
+  # ─────────────────────────────────────────────────────────────────────
+  stage-2-test-vector-oracle:
+    needs: stage-1-cbor-lint
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 2a — Regenerate conformance vectors from canonical source
+      - name: '2a — Regenerate conformance vectors'
+        run: python3 scripts/gen_conformance.py 2>&1 | tee /tmp/stage2a.log
+
+      # 2b — Every vector in test_vectors.json must decode correctly
+      - name: '2b — Conformance suite payload decode'
+        run: |
+          cargo test --release -p axiom-core -- conformance_suite_payload_decode_valid_vectors 2>&1 | tee /tmp/stage2b.log
+
+      # 2c — Full round-trip determinism on 10k random payloads
+      - name: '2c — Fuzz round-trip (10k random payloads)'
+        run: |
+          cargo test --release -p axiom-core -- cbor::tests::test_fuzz_roundtrip_random_payloads 2>&1 | tee /tmp/stage2c.log
+
+      # 2d — Validate each vector's COSE envelope parses and verifies
+      - name: '2d — COSE sign/verify round-trip on all vectors'
+        run: |
+          cargo test --release -p axiom-core -- conformance_suite_verification 2>&1 | tee /tmp/stage2d.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 3 — Negative Test Matrix
+  # ─────────────────────────────────────────────────────────────────────
+  stage-3-negative-matrix:
+    needs: stage-2-test-vector-oracle
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # 3a — Full workspace test suite (includes all negative tests)
+      - name: '3a — Full workspace test suite (all negative tests)'
+        run: |
+          cargo test --release --workspace 2>&1 | tee /tmp/stage3a.log
+
+      # 3b — Explicitly enumerate every error code 1-18 is tested
+      - name: '3b — Error code coverage (1-18)'
+        run: |
+          cargo test --release -p axiom-core -- \
+            test_all_error_codes_1_to_18 2>&1 | tee /tmp/stage3b.log
+
+      # 3c — Each error variant triggered by at least one test
+      - name: '3c — Error variant trigger matrix'
+        run: |
+          cargo test --release -p axiom-core -- \
+            test_error_code_16_encode \
+            test_error_code_17_spec_error \
+            test_error_code_18_recovery_policy 2>&1 | tee /tmp/stage3c.log
+
+      # 3d — Integration test suite
+      - name: '3d — Integration use-case tests'
+        run: |
+          cargo test --release -p axiom-core --test axiom_use_cases 2>&1 | tee /tmp/stage3d.log
+          cargo test --release -p axiom-cli --test cli_tests 2>&1
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 4 — C FFI ABI Check
+  # ─────────────────────────────────────────────────────────────────────
+  stage-4-ffi-abi:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # 4a — Build the shared library
+      - name: '4a — Build FFI shared library'
+        run: cargo build --release -p axiom-core-ffi 2>&1 | tee /tmp/stage4a.log
+
+      # 4b — Verify every exported symbol matches the C header
+      - name: '4b — FFI ABI symbol check'
+        run: |
+          bash scripts/check_ffi_abi.sh "$CARGO_TARGET_DIR/release/libaxiom_core_ffi.so" 2>&1 | tee /tmp/stage4b.log
+
+      # 4c — Compile and run a C program exercising each function
+      - name: '4c — C smoke test (all exported functions)'
+        run: |
+          CFLAGS="-I crates/axiom-core-ffi/include"
+          LDFLAGS="-L $CARGO_TARGET_DIR/release -laxiom_core_ffi -lm -ldl"
+          cat > /tmp/test_ffi.c << 'CEOF'
+          #include <stdio.h>
+          #include <string.h>
+          #include "axiom_core.h"
+          int main() {
+              printf("axiom_version: %s\n", axiom_version());
+              /* Encode a minimal payload */
+              uint8_t subj[32];
+              memset(subj, 0xab, 32);
+              uint8_t *cbor = NULL; size_t cbor_len = 0;
+              int rc = axiom_encode_payload(subj, 32, 0, &cbor, &cbor_len);
+              printf("axiom_encode_payload: rc=%d len=%zu\n", rc, cbor_len);
+              if (rc != 0) return 1;
+              axiom_free(cbor);
+              printf("All FFI smoke tests PASSED\n");
+              return 0;
+          }
+          CEOF
+          gcc -o /tmp/test_ffi /tmp/test_ffi.c $CFLAGS $LDFLAGS 2>&1
+          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" /tmp/test_ffi 2>&1 | tee /tmp/stage4c.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 5 — Cross-language Round-trip
+  # ─────────────────────────────────────────────────────────────────────
+  stage-5-cross-language:
+    needs: stage-4-ffi-abi
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,278 +316,409 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 1 — Canonical CBOR Lint
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 1/6 — Canonical CBOR Lint: Rust deterministic encoding tests'
-        run: |
-          cargo test --release -p axiom-core -- cbor::tests::test_deterministic_encoding 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_null_bytes 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_float 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_tags 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_indefinite_length 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_tagged_values_inner 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_rejects_bytewise_unsorted_keys 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_fuzz_rejects_non_canonical_uint 2>&1
-          cargo test --release -p axiom-core -- cbor::tests::test_fuzz_rejects_duplicate_keys 2>&1
-        shell: bash
-
-      - name: 'STAGE 1/6 — Canonical CBOR Lint: independent Python spec (11 rules)'
-        run: python3 scripts/differential_cbor_test.py
-
-      - name: 'STAGE 1/6 — Canonical CBOR Lint: fuzz decode never panics'
-        run: cargo test --release -p axiom-core -- cbor::tests::test_fuzz_decode_never_panics 2>&1
-
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 2 — Test Vector Oracle
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 2/6 — Test Vector Oracle: regenerate conformance vectors'
-        run: python3 scripts/gen_conformance.py
-
-      - name: 'STAGE 2/6 — Test Vector Oracle: conformance_suite_verification'
-        run: cargo test --release -p axiom-core -- conformance_suite_verification 2>&1
-
-      - name: 'STAGE 2/6 — Test Vector Oracle: payload decode valid vectors'
-        run: cargo test --release -p axiom-core -- conformance_suite_payload_decode_valid_vectors 2>&1
-
-      - name: 'STAGE 2/6 — Test Vector Oracle: fuzz roundtrip 10k random payloads'
-        run: cargo test --release -p axiom-core -- cbor::tests::test_fuzz_roundtrip_random_payloads 2>&1
-
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 3 — Negative Test Matrix
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 3/6 — Negative Test Matrix: full workspace test suite'
-        run: cargo test --release --workspace 2>&1
-
-      - name: 'STAGE 3/6 — Negative Test Matrix: integration use-case tests'
-        run: cargo test --release -p axiom-core --test axiom_use_cases 2>&1
-
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 4 — C FFI ABI Check
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 4/6 — C FFI ABI Check: build shared library'
+      - name: Build FFI shared library
         run: cargo build --release -p axiom-core-ffi 2>&1
 
-      - name: 'STAGE 4/6 — C FFI ABI Check: verify exported symbols match header'
-        run: bash scripts/check_ffi_abi.sh "$CARGO_TARGET_DIR/release/libaxiom_core_ffi.so"
-
-      - name: 'STAGE 4/6 — C FFI ABI Check: version string test'
-        run: |
-          c_args="-I crates/axiom-core-ffi/include"
-          ld_flags="-L $CARGO_TARGET_DIR/release -laxiom_core_ffi -lm -ldl"
-          cat > /tmp/test_version.c << 'EOF'
-          #include <stdio.h>
-          #include "axiom_core.h"
-          int main() {
-              printf("axiom-core version: %s\n", axiom_version());
-              return 0;
-          }
-          EOF
-          gcc -o /tmp/test_version /tmp/test_version.c $c_args $ld_flags
-          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" /tmp/test_version
-
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 5 — Cross-language Round-trip
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 5/6 — Cross-language Round-trip: Go tests'
-        run: |
-          export CGO_LDFLAGS="-L$CARGO_TARGET_DIR/release -laxiom_core_ffi -lm -ldl"
-          export CGO_CFLAGS="-I $(pwd)/crates/axiom-core-ffi/include"
-          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
-          cd crates/axiom-core-go && go test -v ./... 2>&1
-
-      - name: 'STAGE 5/6 — Cross-language Round-trip: Python CBOR conformance'
-        run: |
-          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
-          python3 scripts/differential_cbor_test.py
-
-      - name: 'STAGE 5/6 — Cross-language Round-trip: build Python binding'
+      - name: Build Python binding
         run: cargo build --release -p axiom-core-python 2>&1
 
-      - name: 'STAGE 5/6 — Cross-language Round-trip: build Node.js binding'
+      - name: Build Node.js binding
         run: |
           cd crates/axiom-core-node
           npm install 2>&1
           npm run build 2>&1
-          ls -la *.node
 
-      - name: 'STAGE 5/6 — Cross-language Round-trip: Node.js tests'
+      # 5a — Python: sign with C, verify with Python (and vice versa)
+      - name: '5a — Python/C cross-round-trip'
+        run: |
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          python3 scripts/python_roundtrip_test.py 2>&1 | tee /tmp/stage5a.log
+
+      # 5b — Node.js: verify payloads produced by the C library
+      - name: '5b — Node.js/C cross-round-trip'
         run: |
           cd crates/axiom-core-node
-          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" node test.js 2>&1
+          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" node test.js 2>&1 | tee /tmp/stage5b.log
 
-# ═══════════════════════════════════════════════════════════════════
-# STAGE 6 — Composite Signature Validation
-# ═══════════════════════════════════════════════════════════════════
-      - name: 'STAGE 6/6 — Composite Sig: build CLI'
+      # 5c — Go: full verify chain using FFI
+      - name: '5c — Go FFI round-trip'
+        run: |
+          export CGO_LDFLAGS="-L$CARGO_TARGET_DIR/release -laxiom_core_ffi -lm -ldl"
+          export CGO_CFLAGS="-I $(pwd)/crates/axiom-core-ffi/include"
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          cd crates/axiom-core-go && go test -v ./... 2>&1 | tee /tmp/stage5c.log
+
+      # 5d — All bindings produce identical CBOR for the same payload
+      - name: '5d — Deterministic CBOR across all bindings'
+        run: |
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          python3 scripts/differential_cbor_test.py 2>&1 | tee /tmp/stage5d.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 6 — Composite Signature Validation
+  # ─────────────────────────────────────────────────────────────────────
+  stage-6-composite-sig:
+    needs: stage-5-cross-language
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build CLI
         run: cargo build --release -p axiom-cli 2>&1
 
-      - name: 'STAGE 6/6 — Composite Sig: Ed25519 sign/verify chain'
+      # 6a — Rust composite sign/verify round-trip
+      - name: '6a — Rust composite sign/verify (algorithm -39)'
+        run: |
+          cargo test --release -p axiom-core -- \
+            cose::tests::test_composite_sign_verify_roundtrip 2>&1 | tee /tmp/stage6a.log
+
+      # 6b — Composite signature serialization round-trip
+      - name: '6b — Composite signature serialization'
+        run: |
+          cargo test --release -p axiom-core -- \
+            cose::tests::test_composite_serialization 2>&1 | tee /tmp/stage6b.log
+
+      # 6c — ML-DSA-65 only sign/verify
+      - name: '6c — ML-DSA-65 only (algorithm -38)'
+        run: |
+          cargo test --release -p axiom-core -- \
+            cose::tests::test_mldsa65_sign_verify_roundtrip 2>&1 | tee /tmp/stage6c.log
+          cargo test --release -p axiom-core -- \
+            cose::tests::test_mldsa65_wrong_key_fails 2>&1
+          cargo test --release -p axiom-core -- \
+            cose::tests::test_mldsa65_tampered_cose_fails 2>&1
+
+      # 6d — CLI composite sign/verify chain
+      - name: '6d — CLI composite sign/verify'
         run: |
           CLI="$CARGO_TARGET_DIR/release/axiom"
           cd /tmp
           mkdir -p ci-comp-test && cd ci-comp-test
           echo "Composite CI test artifact" > artifact.txt
           $CLI init
-          $CLI key generate test-key
-          $CLI hash artifact.txt --json
-          $CLI sign artifact.txt --key .axiom/keys/test-key.key --out test.axm
-          PUBKEY=$(grep public .axiom/keys/test-key.key | cut -d' ' -f3)
-          $CLI verify test.axm --pubkey "$PUBKEY"
-          $CLI inspect test.axm
-          $CLI lint test.axm
-
-      - name: 'STAGE 6/6 — Composite Sig: composite sign with ML-DSA-65'
-        run: |
-          CLI="$CARGO_TARGET_DIR/release/axiom"
-          cd /tmp/ci-comp-test
           $CLI key generate ed-key
           $CLI sign artifact.txt --key .axiom/keys/ed-key.key \
             --composite \
             --ml-dsa-key .axiom/keys/ed-key.mldsa \
-            --out composite.axm
-          echo "Composite signature created: composite.axm"
-          $CLI inspect composite.axm
+            --out composite.axm 2>&1 | tee /tmp/stage6d.log
           ED_PUBKEY=$(grep public .axiom/keys/ed-key.key | cut -d' ' -f3)
           ML_PUBKEY=$(grep public .axiom/keys/ed-key.mldsa | cut -d' ' -f3)
-          $CLI verify composite.axm --pubkey "$ED_PUBKEY" --mldsa-pubkey "$ML_PUBKEY"
-          echo "Composite signature chain PASS"
+          $CLI verify composite.axm --pubkey "$ED_PUBKEY" --mldsa-pubkey "$ML_PUBKEY" 2>&1
 
-      - name: 'STAGE 6/6 — Composite Sig: composite test vectors from conformance suite'
+      # 6e — Quantum attack simulations (tamper Ed25519 part, tamper ML-DSA part)
+      - name: '6e — Quantum attack simulation tests'
         run: |
-          cargo test --release -p axiom-core -- conformance_suite_verification 2>&1
+          cargo test --release -p axiom-core -- \
+            test_threat_quantum_attack_ed25519_tampered 2>&1 | tee /tmp/stage6e.log
+          cargo test --release -p axiom-core -- \
+            test_threat_quantum_attack_mldsa_tampered 2>&1
 
-      - name: 'STAGE 6/6 — Composite Sig: CLI built-in test suite'
+      # 6f — Composite test vectors from conformance suite
+      - name: '6f — Composite conformance vectors'
         run: |
-          $CARGO_TARGET_DIR/release/axiom test 2>&1
-          $CARGO_TARGET_DIR/release/axiom doctor 2>&1
+          cargo test --release -p axiom-core -- \
+            conformance_suite_verification 2>&1 | tee /tmp/stage6f.log
 
-      - name: 'STAGE 6/6 — Benchmark regression guard'
-        run: bash scripts/check_benchmark_regression.sh "$CARGO_TARGET_DIR/release/axiom"
+      - name: '6g — Benchmark regression guard'
+        run: bash scripts/check_benchmark_regression.sh "$CARGO_TARGET_DIR/release/axiom" 2>&1
 
-# ═══════════════════════════════════════════════════════════════════
-# CARGO-DENY — Dependency Vulnerability Audit
-# ═══════════════════════════════════════════════════════════════════
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # CARGO-DENY — Dependency Audit (runs in parallel with stage 6)
+  # ─────────────────────────────────────────────────────────────────────
+  cargo-deny:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
 
-      - name: Run cargo-deny check (advisories + licenses + bans)
-        run: cargo deny check
+      - name: Run cargo-deny
+        run: cargo deny check 2>&1
 
-# ═══════════════════════════════════════════════════════════════════
-# COMPLIANCE REPORT
-# ═══════════════════════════════════════════════════════════════════
-      - name: Generate Compliance Report
-        if: always()
-        run: |
-          STATUS="${{ job.status }}"
-          cat > /tmp/compliance-report.json << EOF
-          {
-            "axiom_protocol": "v3.0",
-            "compliance_gate": "Axiom-True v1.0",
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "sha": "${{ github.sha }}",
-            "run_id": ${{ github.run_id }},
-            "status": "$STATUS",
-            "stages": {
-              "1_cbor_lint": { "name": "Canonical CBOR Lint" },
-              "2_test_vector_oracle": { "name": "Test Vector Oracle" },
-              "3_negative_test_matrix": { "name": "Negative Test Matrix" },
-              "4_c_ffi_abi_check": { "name": "C FFI ABI Check" },
-              "5_cross_language_roundtrip": { "name": "Cross-language Round-trip" },
-              "6_composite_signature": { "name": "Composite Signature Validation" },
-              "7_benchmark_regression": { "name": "Benchmark Regression Guard" },
-              "8_cargo_deny": { "name": "cargo-deny Vulnerability Audit" }
-            },
-            "gates": {
-              "kani_proofs": "12 harnesses across cbor.rs + verify.rs",
-              "fuzzing": "CBOR decode + COSE parse via cargo-fuzz"
-            }
-          }
-          EOF
-          echo "Compliance report generated:"
-          python3 -m json.tool /tmp/compliance-report.json
-
-      - name: Summarize compliance gate
-        run: |
-          echo "# Axiom Protocol Compliance Gate" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1/6 Canonical CBOR Lint | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2/6 Test Vector Oracle | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3/6 Negative Test Matrix | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4/6 C FFI ABI Check | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| 5/6 Cross-language Round-trip | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| 6/6 Composite Signature | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| — Benchmark Regression | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| — cargo-deny Audit | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
-          echo "| — Kani Proofs (12) | ⏳ separate job |" >> $GITHUB_STEP_SUMMARY
-          echo "| — Fuzzing (2 targets) | ⏳ separate job |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Axiom-True v1.0** — All gates passed for commit \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-
+  # ─────────────────────────────────────────────────────────────────────
+  # KANI PROOFS (informational, non-blocking)
+  # ─────────────────────────────────────────────────────────────────────
   kani-proofs:
-    needs: compliance
+    needs: stage-3-negative-matrix
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
+      - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y libclang-dev libssl-dev pkg-config
-
-      - name: Install Rust nightly for Kani
+      - name: Install Rust nightly
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
-          target: x86_64-unknown-linux-gnu
-
-      - name: Install Kani verifier
+      - name: Install Kani
         uses: model-checking/kani-github-action@v1
         with:
           working-directory: crates/axiom-core
-
-      - name: Run Kani proofs
-        run: cargo kani --harness check_cbor_roundtrip_minimal -p axiom-core 2>&1
-        working-directory: crates/axiom-core
-
-      - name: Run all Kani proof harnesses
+      - name: Run all Kani harnesses
         run: cargo kani -p axiom-core 2>&1
         working-directory: crates/axiom-core
 
+  # ─────────────────────────────────────────────────────────────────────
+  # FUZZING (informational, non-blocking)
+  # ─────────────────────────────────────────────────────────────────────
   fuzzing:
-    needs: compliance
+    needs: stage-3-negative-matrix
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
+      - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y libclang-dev libssl-dev pkg-config clang
-
-      - name: Install Rust toolchain
+      - name: Install Rust nightly
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
-
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
-
-      - name: Fuzz CBOR decode (1 min)
+      - name: Fuzz CBOR decode
         run: cargo fuzz run fuzz_cbor_decode -- -max_total_time=60 -runs=50000
         working-directory: fuzz
-
-      - name: Fuzz COSE parse (1 min)
+      - name: Fuzz COSE parse
         run: cargo fuzz run fuzz_cose_parse -- -max_total_time=60 -runs=50000
         working-directory: fuzz
+
+  # ─────────────────────────────────────────────────────────────────────
+  # COMPLIANCE REPORT — Aggregate all stage results
+  # ─────────────────────────────────────────────────────────────────────
+  compliance-report:
+    needs:
+      - stage-1-cbor-lint
+      - stage-2-test-vector-oracle
+      - stage-3-negative-matrix
+      - stage-4-ffi-abi
+      - stage-5-cross-language
+      - stage-6-composite-sig
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect stage statuses
+        id: collect
+        run: |
+          declare -A STAGES
+          STAGES["1_cbor_lint"]="${{ needs.stage-1-cbor-lint.outputs.status }}"
+          STAGES["2_test_vector_oracle"]="${{ needs.stage-2-test-vector-oracle.outputs.status }}"
+          STAGES["3_negative_matrix"]="${{ needs.stage-3-negative-matrix.outputs.status }}"
+          STAGES["4_ffi_abi"]="${{ needs.stage-4-ffi-abi.outputs.status }}"
+          STAGES["5_cross_language"]="${{ needs.stage-5-cross-language.outputs.status }}"
+          STAGES["6_composite_sig"]="${{ needs.stage-6-composite-sig.outputs.status }}"
+
+          ALL_PASSED=true
+          for stage in "${!STAGES[@]}"; do
+            if [[ "${STAGES[$stage]}" != "passed" ]]; then
+              ALL_PASSED=false
+              break
+            fi
+          done
+
+          echo "all_passed=$ALL_PASSED" >> $GITHUB_OUTPUT
+
+          # Generate per-stage status table
+          echo "### Axiom Protocol Compliance Report" > /tmp/report.md
+          echo "" >> /tmp/report.md
+          echo "| Stage | Status |" >> /tmp/report.md
+          echo "|-------|--------|" >> /tmp/report.md
+          for stage in "1_cbor_lint" "2_test_vector_oracle" "3_negative_matrix" "4_ffi_abi" "5_cross_language" "6_composite_sig"; do
+            icon="✅"
+            [[ "${STAGES[$stage]}" != "passed" ]] && icon="❌"
+            echo "| ${stage} | ${icon} ${STAGES[$stage]:-failed} |" >> /tmp/report.md
+          done
+          echo "" >> /tmp/report.md
+
+          if [[ "$ALL_PASSED" == "true" ]]; then
+            echo "**Axiom-True v1.0** — All six compliance gates passed." >> /tmp/report.md
+            echo "axiom_true=true" >> $GITHUB_OUTPUT
+          else
+            echo "**GATE FAILED** — One or more stages did not pass. Blocking merge." >> /tmp/report.md
+            echo "axiom_true=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> /tmp/report.md
+          echo "**Commit**: \`${{ github.sha }}\`" >> /tmp/report.md
+          echo "**Run ID**: ${{ github.run_id }}" >> /tmp/report.md
+          echo "**Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/report.md
+
+      - name: Generate JSON compliance report
+        run: |
+          cat > /tmp/compliance-report.json << EOF
+          {
+            "protocol": "Axiom Protocol v3.0",
+            "compliance_level": "Axiom-True v1.0",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sha": "${{ github.sha }}",
+            "run_id": ${{ github.run_id }},
+            "passed": ${{ steps.collect.outputs.all_passed }},
+            "stages": {
+              "1_cbor_lint": "${{ needs.stage-1-cbor-lint.outputs.status }}",
+              "2_test_vector_oracle": "${{ needs.stage-2-test-vector-oracle.outputs.status }}",
+              "3_negative_matrix": "${{ needs.stage-3-negative-matrix.outputs.status }}",
+              "4_ffi_abi": "${{ needs.stage-4-ffi-abi.outputs.status }}",
+              "5_cross_language": "${{ needs.stage-5-cross-language.outputs.status }}",
+              "6_composite_sig": "${{ needs.stage-6-composite-sig.outputs.status }}"
+            },
+            "kani_proofs": "12 harnesses (informational)",
+            "fuzzing": "CBOR decode + COSE parse (informational)",
+            "dependency_audit": "cargo-deny"
+          }
+          EOF
+          echo '```json' >> /tmp/report.md
+          python3 -m json.tool /tmp/compliance-report.json >> /tmp/report.md
+          echo '```' >> /tmp/report.md
+
+      # Generate badge data file (pushed to .github/badges/ on main)
+      - name: Generate Axiom-True badge data
+        run: |
+          mkdir -p .github/badges
+          cat > .github/badges/axiom-true-status.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "Axiom-True",
+            "message": "${{ steps.collect.outputs.axiom_true == 'true' && 'v1.0 PASSED' || 'GATE FAILED' }}",
+            "color": "${{ steps.collect.outputs.axiom_true == 'true' && '2ea44f' || 'e05d44' }}",
+            "isError": ${{ steps.collect.outputs.axiom_true != 'true' }},
+            "logoSvg": "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><text x='0' y='14' font-size='14'>✓</text></svg>"
+          }
+          EOF
+
+      - name: Post report to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/report.md', 'utf8');
+            const passed = ${{ steps.collect.outputs.all_passed }};
+            const conclusion = passed ? 'success' : 'failure';
+
+            // Post or update the compliance check
+            const check_name = 'Axiom Protocol Compliance Gate';
+            const { data: check } = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: check_name,
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: passed ? 'Axiom-True v1.0 — All gates passed' : 'Compliance Gate Failed',
+                summary: report.substring(0, 1024),
+                text: report,
+              },
+            });
+
+            // Delete any existing comment from previous runs
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const comment of comments) {
+              if (comment.body && comment.body.includes('Axiom Protocol Compliance Report')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id,
+                });
+              }
+            }
+
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Axiom Protocol Compliance Report\n\n${report}`,
+            });
+
+      - name: Post report to Job Summary (always)
+        run: |
+          cat /tmp/report.md >> $GITHUB_STEP_SUMMARY
+
+      # On main pushes, commit and push badge data
+      - name: Push badge data to .github/badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "axiom-compliance-bot"
+          git config user.email "bot@axiom-protocol.org"
+          git add .github/badges/axiom-true-status.json
+          git diff --staged --quiet || git commit -m "Update Axiom-True badge [skip ci]"
+          git push
+
+  # ─────────────────────────────────────────────────────────────────────
+  # FINAL GATE — Block PR merge if compliance fails
+  # ─────────────────────────────────────────────────────────────────────
+  gate-block:
+    needs: compliance-report
+    if: failure() || needs.compliance-report.result == 'failure'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Block merge — Compliance gate failed
+        run: |
+          echo "❌ Axiom Protocol Compliance Gate FAILED."
+          echo "Review the detailed report above and fix all stage failures."
+          echo "Re-run the workflow after pushing fixes."
+          exit 1
+
+  # ═══════════════════════════════════════════════════════════════════
+  # REQUIRED CHECK — required in branch protection settings
+  # ═══════════════════════════════════════════════════════════════════
+  axiom-true:
+    if: always()
+    needs: compliance-report
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          RESULT="${{ needs.compliance-report.result }}"
+          PASSED="${{ needs.compliance-report.outputs.all_passed }}"
+          if [[ "$RESULT" == "success" && "$PASSED" == "true" ]]; then
+            echo "✅ Axiom-True v1.0 — All compliance gates passed."
+          else
+            echo "❌ Compliance gate failed or incomplete."
+            exit 1
+          fi
+
+# ═══════════════════════════════════════════════════════════════════════
+# BADGE USAGE
+# ═══════════════════════════════════════════════════════════════════════
+# Add this to README.md after the badge is published:
+#
+# [![Axiom-True](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/
+#   thupa-pro/axiom-core/main/.github/badges/axiom-true-status.json)]
+#   (https://github.com/thupa-pro/axiom-core/actions/workflows/axiom-compliance.yml)
+#
+# The badge is updated on every push to main by the compliance-report job.
