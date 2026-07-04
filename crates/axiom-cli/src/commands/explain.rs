@@ -99,7 +99,7 @@ pub fn run(args: &ExplainArgs) -> Result<()> {
     println!();
     println!("  Statement Hash: {}", hash_short);
     println!("  Payload Hash:   {}", hex::encode(payload_hash));
-    println!("  Algorithm:      {}", "Ed25519");
+    println!("  Algorithm:      Ed25519");
     println!();
 
     Ok(())

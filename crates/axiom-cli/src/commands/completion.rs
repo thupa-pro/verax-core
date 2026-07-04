@@ -80,8 +80,8 @@ fn shell_paths(shell: &clap_complete::Shell, name: &str) -> Result<(PathBuf, Str
     match shell {
         clap_complete::Shell::Bash => Ok((
             PathBuf::from(&home).join(".local/share/bash-completion/completions"),
-            format!("{name}"),
-            format!("Ensure ~/.local/share/bash-completion/completions is in your BASH_COMPLETION_DIR, or source the file in your .bashrc"),
+            name.to_string(),
+            "Ensure ~/.local/share/bash-completion/completions is in your BASH_COMPLETION_DIR, or source the file in your .bashrc".to_string(),
         )),
         clap_complete::Shell::Zsh => Ok((
             PathBuf::from(&home).join(".zsh/completions"),

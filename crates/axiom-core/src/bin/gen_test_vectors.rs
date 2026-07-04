@@ -50,6 +50,7 @@ fn payload_to_json(payload: &AxiomPayload) -> String {
     format!("{{{}}}", fields.join(","))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_vector(
     name: &str,
     predicate: Predicate,
@@ -90,6 +91,7 @@ fn make_vector(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_composite_vector(
     name: &str,
     predicate: Predicate,
@@ -117,7 +119,7 @@ fn make_composite_vector(
 
     let stmt = Statement::sign_composite(&payload, ed_sk, &ml_sk).unwrap();
     let stmt_bytes = stmt.to_bytes();
-    let stmt_hex = hex(&stmt_bytes);
+    let stmt_hex = hex(stmt_bytes);
 
     let comp_pk = axiom_core::composite_pubkey(&ed_sk.verifying_key(), &ml_vk);
     let mut pk_bytes_vec = Vec::with_capacity(32 + ml_vk.to_bytes().len());
@@ -140,6 +142,7 @@ fn make_composite_vector(
     )
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn main() {
     let seed = [0x42u8; 32];
     let sk = ed25519_dalek::SigningKey::from_bytes(&seed);

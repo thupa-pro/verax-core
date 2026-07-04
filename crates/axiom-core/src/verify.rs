@@ -42,6 +42,12 @@ impl VerificationWarnings {
     }
 }
 
+impl Default for VerificationWarnings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait TrustStore {
     fn resolve_key(&self, kid: &[u8]) -> Option<ed25519_dalek::VerifyingKey>;
 
@@ -161,13 +167,12 @@ pub fn verify_statement_with_warnings(
 
     // Validate object field for binary-relationship predicates (Spec §3.6)
     match payload.predicate {
-        Predicate::DerivedFrom | Predicate::Supersedes | Predicate::Revokes | Predicate::CompliesWith => {
-            if payload.object.is_none() {
-                return Err(Error::Payload(format!(
-                    "{} predicate requires an object field",
-                    payload.predicate.name()
-                )));
-            }
+        Predicate::DerivedFrom | Predicate::Supersedes | Predicate::Revokes | Predicate::CompliesWith
+            if payload.object.is_none() => {
+            return Err(Error::Payload(format!(
+                "{} predicate requires an object field",
+                payload.predicate.name()
+            )));
         }
         _ => {}
     }
@@ -199,20 +204,18 @@ pub fn verify_statement_with_warnings(
             let prev_payload = AxiomPayload::decode(&prev_payload_bytes)
                 .map_err(|_| Error::BrokenLineage("previous statement payload decode failed".into()))?;
 
-            if cur_payload.predicate == Predicate::Appends {
-                if prev_payload.subject != cur_payload.subject {
-                    return Err(Error::LineageSubjectMismatch);
-                }
+            if cur_payload.predicate == Predicate::Appends
+                && prev_payload.subject != cur_payload.subject {
+                return Err(Error::LineageSubjectMismatch);
             }
 
-            if let Some(cur_ts) = cur_payload.timestamp {
-                if let Some(prev_ts) = prev_payload.timestamp {
-                    if cur_ts < prev_ts {
-                        return Err(Error::TimestampMonotonicityViolation);
-                    }
-                    if cur_ts == prev_ts && cur_payload.nonce.is_none() {
-                        return Err(Error::TimestampMonotonicityViolation);
-                    }
+            if let Some(cur_ts) = cur_payload.timestamp
+                && let Some(prev_ts) = prev_payload.timestamp {
+                if cur_ts < prev_ts {
+                    return Err(Error::TimestampMonotonicityViolation);
+                }
+                if cur_ts == prev_ts && cur_payload.nonce.is_none() {
+                    return Err(Error::TimestampMonotonicityViolation);
                 }
             }
 
@@ -220,27 +223,21 @@ pub fn verify_statement_with_warnings(
         }
     }
 
-    if payload.predicate == Predicate::Revokes {
-        if let Some(obj_hash) = &payload.object {
-            if let Some(revoked_bytes) = trust_anchors.fetch_statement(obj_hash) {
-                let revoked_protected = cose::extract_protected(&revoked_bytes)?;
-                let revoked_kid = extract_kid(&revoked_protected)?;
-                if kid != revoked_kid {
-                    return Err(Error::RevokeIssuerMismatch);
-                }
-                // REVOKES timestamp must be > target statement timestamp
-                if let Some(rev_ts) = payload.timestamp {
-                    if let Ok(revoked_stmt) = Statement::from_bytes(&revoked_bytes) {
-                        if let Ok(revoked_payload) = revoked_stmt.decode_payload() {
-                            if let Some(target_ts) = revoked_payload.timestamp {
-                                if rev_ts <= target_ts {
-                                    return Err(Error::TimestampMonotonicityViolation);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    if payload.predicate == Predicate::Revokes
+        && let Some(obj_hash) = &payload.object
+        && let Some(revoked_bytes) = trust_anchors.fetch_statement(obj_hash) {
+        let revoked_protected = cose::extract_protected(&revoked_bytes)?;
+        let revoked_kid = extract_kid(&revoked_protected)?;
+        if kid != revoked_kid {
+            return Err(Error::RevokeIssuerMismatch);
+        }
+        // REVOKES timestamp must be > target statement timestamp
+        if let Some(rev_ts) = payload.timestamp
+            && let Ok(revoked_stmt) = Statement::from_bytes(&revoked_bytes)
+            && let Ok(revoked_payload) = revoked_stmt.decode_payload()
+            && let Some(target_ts) = revoked_payload.timestamp
+            && rev_ts <= target_ts {
+            return Err(Error::TimestampMonotonicityViolation);
         }
     }
 
@@ -257,21 +254,18 @@ pub fn verify_statement_with_warnings(
                 ));
             }
             // If the target statement has a recovery_policy, validate guardian membership
-            if let Some(target_bytes) = trust_anchors.fetch_statement(target_hash) {
-                if let Ok(target_payload) = Statement::from_bytes(&target_bytes)
+            if let Some(target_bytes) = trust_anchors.fetch_statement(target_hash)
+                && let Ok(target_payload) = Statement::from_bytes(&target_bytes)
                     .and_then(|s| s.decode_payload())
-                {
-                    if let Some(rp_raw) = &target_payload.recovery_policy {
-                        let rp = crate::cbor::RecoveryPolicy::decode(rp_raw)
-                            .map_err(|e| Error::RecoveryPolicyViolation(format!(
-                                "invalid recovery policy: {e}"
-                            )))?;
-                        if !rp.guardians.contains(guardian_hash) {
-                            return Err(Error::RecoveryPolicyViolation(
-                                "issuer not in recovery policy guardian list".into(),
-                            ));
-                        }
-                    }
+                && let Some(rp_raw) = &target_payload.recovery_policy {
+                let rp = crate::cbor::RecoveryPolicy::decode(rp_raw)
+                    .map_err(|e| Error::RecoveryPolicyViolation(format!(
+                        "invalid recovery policy: {e}"
+                    )))?;
+                if !rp.guardians.contains(guardian_hash) {
+                    return Err(Error::RecoveryPolicyViolation(
+                        "issuer not in recovery policy guardian list".into(),
+                    ));
                 }
             }
         }

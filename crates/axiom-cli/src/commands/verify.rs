@@ -72,57 +72,49 @@ impl CliTrustStore {
         revocation_cache: Option<&PathBuf>,
     ) -> Self {
         let mut chain_cache = HashMap::new();
-        if let Some(dir) = chain_dir {
-            if let Ok(entries) = std::fs::read_dir(dir) {
+        if let Some(dir) = chain_dir
+            && let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |e| e == "axm") {
-                        if let Ok(bytes) = std::fs::read(&path) {
+                    if path.extension().is_some_and(|e| e == "axm")
+                        && let Ok(bytes) = std::fs::read(&path) {
                             let hash = blake3(&bytes);
                             chain_cache.insert(hash, bytes);
-                        }
                     }
                 }
-            }
         }
 
         let mut checkpoint_timestamp = None;
         let mut revoked = HashSet::new();
         let mut not_revoked = HashSet::new();
-        if let Some(path) = revocation_cache {
-            if let Ok(json_str) = std::fs::read_to_string(path) {
-                if let Ok(cache) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    if let Some(ts) = cache.get("checkpoint_timestamp").and_then(|v| v.as_u64()) {
-                        checkpoint_timestamp = Some(ts);
-                    }
-                    if let Some(revoked_arr) = cache.get("revoked").and_then(|v| v.as_array()) {
-                        for val in revoked_arr {
-                            if let Some(hex_str) = val.as_str() {
-                                if let Ok(bytes) = hex::decode(hex_str) {
-                                    if bytes.len() == 32 {
-                                        let mut arr = [0u8; 32];
-                                        arr.copy_from_slice(&bytes);
-                                        revoked.insert(arr);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(not_revoked_arr) = cache.get("not_revoked").and_then(|v| v.as_array()) {
-                        for val in not_revoked_arr {
-                            if let Some(hex_str) = val.as_str() {
-                                if let Ok(bytes) = hex::decode(hex_str) {
-                                    if bytes.len() == 32 {
-                                        let mut arr = [0u8; 32];
-                                        arr.copy_from_slice(&bytes);
-                                        not_revoked.insert(arr);
-                                    }
-                                }
-                            }
+        if let Some(path) = revocation_cache
+            && let Ok(json_str) = std::fs::read_to_string(path)
+            && let Ok(cache) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(ts) = cache.get("checkpoint_timestamp").and_then(|v| v.as_u64()) {
+                    checkpoint_timestamp = Some(ts);
+                }
+                if let Some(revoked_arr) = cache.get("revoked").and_then(|v| v.as_array()) {
+                    for val in revoked_arr {
+                        if let Some(hex_str) = val.as_str()
+                            && let Ok(bytes) = hex::decode(hex_str)
+                            && bytes.len() == 32 {
+                                let mut arr = [0u8; 32];
+                                arr.copy_from_slice(&bytes);
+                                revoked.insert(arr);
                         }
                     }
                 }
-            }
+                if let Some(not_revoked_arr) = cache.get("not_revoked").and_then(|v| v.as_array()) {
+                    for val in not_revoked_arr {
+                        if let Some(hex_str) = val.as_str()
+                            && let Ok(bytes) = hex::decode(hex_str)
+                            && bytes.len() == 32 {
+                                let mut arr = [0u8; 32];
+                                arr.copy_from_slice(&bytes);
+                                not_revoked.insert(arr);
+                        }
+                    }
+                }
         }
 
         Self { ed_vk, comp_pk, chain_cache, trusted_log_key, checkpoint_timestamp, revoked, not_revoked }
@@ -391,6 +383,7 @@ fn build_json_output(
     obj
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn build_sections(
     _args: &VerifyArgs,
     vk: &Option<ed25519_dalek::VerifyingKey>,
@@ -507,11 +500,11 @@ fn generate_explain_sections(
         Section { label: "Step 3: Verified protected header determinism".into(), status: Status::Pass, detail: None, indent: 1 },
     ];
     if let Some(vk) = vk {
-        sections.push(Section { label: format!("Step 4: Resolved public key from {} header", if args.pubkey.is_some() { "--pubkey" } else { "KID" }).into(), status: Status::Pass, detail: Some(hex::encode(vk.to_bytes())), indent: 1 });
+        sections.push(Section { label: format!("Step 4: Resolved public key from {} header", if args.pubkey.is_some() { "--pubkey" } else { "KID" }), status: Status::Pass, detail: Some(hex::encode(vk.to_bytes())), indent: 1 });
     } else {
         sections.push(Section { label: "Step 4: Resolved composite public key".into(), status: Status::Pass, detail: None, indent: 1 });
     }
-    sections.push(Section { label: format!("Step 5: Verified {} signature", algorithm).into(), status: Status::Pass, detail: None, indent: 1 });
+    sections.push(Section { label: format!("Step 5: Verified {} signature", algorithm), status: Status::Pass, detail: None, indent: 1 });
 
     if let Some(l) = stmt.lineage().ok().flatten() {
         sections.push(Section { label: "Step 6: Verified lineage chain integrity".into(), status: Status::Pass, detail: Some(format!("previous: {}", hex::encode(l))), indent: 1 });
@@ -532,11 +525,11 @@ fn generate_explain_sections(
     }
 
     sections.push(Section { label: "Summary".into(), status: Status::Info, detail: None, indent: 0 });
-    sections.push(Section { label: format!("Statement asserts {} on artifact {}", stmt.predicate().map(|p| format!("{:?}", p)).unwrap_or_default(), subject).into(), status: Status::Info, detail: None, indent: 1 });
+    sections.push(Section { label: format!("Statement asserts {} on artifact {}", stmt.predicate().map(|p| format!("{:?}", p)).unwrap_or_default(), subject), status: Status::Info, detail: None, indent: 1 });
     if let Some(ph) = payload_hash {
-        sections.push(Section { label: format!("Payload hash: {}", hex::encode(ph)).into(), status: Status::Info, detail: None, indent: 1 });
+        sections.push(Section { label: format!("Payload hash: {}", hex::encode(ph)), status: Status::Info, detail: None, indent: 1 });
     }
-    sections.push(Section { label: format!("Statement hash: {}", hex::encode(stmt_hash)).into(), status: Status::Info, detail: None, indent: 1 });
+    sections.push(Section { label: format!("Statement hash: {}", hex::encode(stmt_hash)), status: Status::Info, detail: None, indent: 1 });
 
     sections
 }

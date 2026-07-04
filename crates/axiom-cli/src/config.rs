@@ -61,10 +61,7 @@ fn load_config_from_disk() -> AxiomConfig {
         Ok(c) => c,
         Err(_) => return AxiomConfig::default(),
     };
-    match toml::from_str(&content) {
-        Ok(cfg) => cfg,
-        Err(_) => AxiomConfig::default(),
-    }
+    toml::from_str(&content).unwrap_or_default()
 }
 
 pub fn project_dir() -> PathBuf {

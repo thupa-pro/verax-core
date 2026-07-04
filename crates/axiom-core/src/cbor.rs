@@ -396,10 +396,9 @@ pub fn encode_payload(payload: &AxiomPayload) -> Vec<u8> {
     if let Some(rp) = &payload.recovery_policy {
         entries.push((10u64, Value::Bstr(rp.clone())));
     }
-    if let Some(exts) = &payload.extensions {
-        if !exts.is_empty() {
-            entries.push((7u64, Value::Map(exts.clone())));
-        }
+    if let Some(exts) = &payload.extensions
+        && !exts.is_empty() {
+        entries.push((7u64, Value::Map(exts.clone())));
     }
 
     entries.sort_by_key(|(k, _)| *k);
@@ -582,19 +581,20 @@ fn decode_any_value(data: &[u8], offset: &mut usize) -> Result<Value> {
             Ok(Value::Map(entries))
         }
         4 => {
-            return Err(Error::Decode("arrays not allowed in extensions".into()));
+            Err(Error::Decode("arrays not allowed in extensions".into()))
         }
         6 => {
-            return Err(Error::NonCanonicalEncoding);
+            Err(Error::NonCanonicalEncoding)
         }
         7 => {
             let info = byte & 0x1f;
             if info == 20 || info == 23 {
-                return Err(Error::Decode("null/undefined values not allowed".into()));
+                Err(Error::Decode("null/undefined values not allowed".into()))
+            } else {
+                Err(Error::Decode(format!("unexpected major type 7 with info {info}")))
             }
-            return Err(Error::Decode(format!("unexpected major type 7 with info {info}")));
         }
-        _ => return Err(Error::Decode(format!("unexpected major type {major} in payload"))),
+        _ => Err(Error::Decode(format!("unexpected major type {major} in payload"))),
     }
 }
 

@@ -45,7 +45,9 @@ fn build_external_aad(unprotected: &[u8]) -> Vec<u8> {
     crate::hash::blake3(unprotected).to_vec()
 }
 
-fn parse_cose_sign1(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+type CosSign1Parts = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+
+fn parse_cose_sign1(data: &[u8]) -> Result<CosSign1Parts> {
     let mut offset = 0;
     if offset >= data.len() {
         return Err(Error::MalformedCose("empty data".into()));

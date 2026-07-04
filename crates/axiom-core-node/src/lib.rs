@@ -193,23 +193,21 @@ pub fn verify_full(
     let mut not_rev_set = HashSet::new();
     if let Some(r) = &revoked {
         for h in r {
-            if let Ok(bytes) = hex::decode(h) {
-                if bytes.len() == 32 {
+            if let Ok(bytes) = hex::decode(h)
+                && bytes.len() == 32 {
                     let mut arr = [0u8; 32];
                     arr.copy_from_slice(&bytes);
                     rev_set.insert(arr);
-                }
             }
         }
     }
     if let Some(nr) = &not_revoked {
         for h in nr {
-            if let Ok(bytes) = hex::decode(h) {
-                if bytes.len() == 32 {
+            if let Ok(bytes) = hex::decode(h)
+                && bytes.len() == 32 {
                     let mut arr = [0u8; 32];
                     arr.copy_from_slice(&bytes);
                     not_rev_set.insert(arr);
-                }
             }
         }
     }

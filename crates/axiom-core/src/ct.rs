@@ -61,14 +61,14 @@ impl LogInclusionProof {
         let mut idx = self.leaf_index;
         for sibling in &self.siblings {
             let mut hasher = sha2::Sha256::new();
-            if idx % 2 == 0 {
+            if idx.is_multiple_of(2) {
                 hasher.update([0x01u8]);
-                hasher.update(&current);
+                hasher.update(current);
                 hasher.update(sibling);
             } else {
                 hasher.update([0x01u8]);
                 hasher.update(sibling);
-                hasher.update(&current);
+                hasher.update(current);
             }
             current = hasher.finalize().into();
             idx /= 2;

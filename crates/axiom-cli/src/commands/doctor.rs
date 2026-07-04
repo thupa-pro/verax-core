@@ -33,7 +33,7 @@ pub fn run(args: &DoctorArgs) -> Result<()> {
     sections.push(Section { label: "Project initialized".into(), status: if project_ok { Status::Pass } else { Status::Warn }, detail: if project_ok { None } else { Some("run `axiom init`".into()) }, indent: 0 });
     if !project_ok { all_ok = false; }
 
-    let platform_info = format!("{}", std::env::consts::ARCH);
+    let platform_info = std::env::consts::ARCH.to_string();
     sections.push(Section { label: "Platform".into(), status: Status::Info, detail: Some(platform_info), indent: 0 });
 
     if args.json {

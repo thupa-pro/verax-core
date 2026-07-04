@@ -23,6 +23,11 @@ pub fn run(args: &ExportArgs) -> Result<()> {
 
     match args.export_format.as_str() {
         "markdown" | "md" => {
+            let pred_str = format!("{:?}", payload.predicate);
+            let object_str = payload.object.map(|o| format!("`{}`", hex::encode(o))).unwrap_or_else(|| "_none_".into());
+            let ts_str = payload.timestamp.map(crate::output::format_timestamp).unwrap_or_else(|| "_none_".into());
+            let nonce_str = payload.nonce.map(|n| format!("`{}`", hex::encode(n))).unwrap_or_else(|| "_none_".into());
+            let lineage_str = payload.lineage.map(|l| format!("`{}`", hex::encode(l))).unwrap_or_else(|| "_none_".into());
             let md = format!(
                 r#"# Axiom Statement
 
@@ -38,11 +43,11 @@ pub fn run(args: &ExportArgs) -> Result<()> {
 "#,
                 hex::encode(hash),
                 hex::encode(payload.subject),
-                format!("{:?}", payload.predicate),
-                payload.object.map(|o| format!("`{}`", hex::encode(o))).unwrap_or_else(|| "_none_".into()),
-                payload.timestamp.map(|t| crate::output::format_timestamp(t)).unwrap_or_else(|| "_none_".into()),
-                payload.nonce.map(|n| format!("`{}`", hex::encode(n))).unwrap_or_else(|| "_none_".into()),
-                payload.lineage.map(|l| format!("`{}`", hex::encode(l))).unwrap_or_else(|| "_none_".into()),
+                pred_str,
+                object_str,
+                ts_str,
+                nonce_str,
+                lineage_str,
             );
             match &args.output {
                 Some(p) => std::fs::write(p, &md)?,

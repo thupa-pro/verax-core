@@ -144,7 +144,7 @@ fn print_ascii_graph(chain: &[StatementNode]) {
     println!();
 }
 
-fn run_interactive(chain: &[StatementNode], file: &PathBuf) -> Result<()> {
+fn run_interactive(chain: &[StatementNode], file: &std::path::Path) -> Result<()> {
     eprintln!("Interactive graph explorer for: {}", file.display());
     eprintln!("(Interactive mode requires terminal — showing static view)\n");
     print_ascii_graph(chain);
@@ -152,7 +152,7 @@ fn run_interactive(chain: &[StatementNode], file: &PathBuf) -> Result<()> {
     for node in chain.iter().rev().take(5) {
         let h = hex::encode(node.hash);
         let p = format!("{:?}", node.payload.predicate);
-        eprintln!("  {} \u{2190} Previous: {} [{}]", "\u{2502}", &h[..12], p);
+        eprintln!("  \u{2502} \u{2190} Previous: {} [{}]", &h[..12], p);
     }
     eprintln!();
     Ok(())

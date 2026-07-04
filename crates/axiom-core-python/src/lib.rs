@@ -169,6 +169,7 @@ fn verify_composite(cose: &[u8], ed_pubkey: &[u8], ml_dsa_pubkey: &[u8]) -> PyRe
 
 #[pyfunction]
 #[pyo3(signature = (cose, pubkey, chain_statements=None, trusted_log_key=None, revoked=None, not_revoked=None, checkpoint_timestamp=None))]
+#[allow(clippy::too_many_arguments)]
 fn verify_full(
     py: Python,
     cose: &[u8],
@@ -202,23 +203,21 @@ fn verify_full(
     let mut not_rev_set = HashSet::new();
     if let Some(r) = &revoked {
         for h in r {
-            if let Ok(bytes) = hex::decode(h) {
-                if bytes.len() == 32 {
+            if let Ok(bytes) = hex::decode(h)
+                && bytes.len() == 32 {
                     let mut arr = [0u8; 32];
                     arr.copy_from_slice(&bytes);
                     rev_set.insert(arr);
-                }
             }
         }
     }
     if let Some(nr) = &not_revoked {
         for h in nr {
-            if let Ok(bytes) = hex::decode(h) {
-                if bytes.len() == 32 {
+            if let Ok(bytes) = hex::decode(h)
+                && bytes.len() == 32 {
                     let mut arr = [0u8; 32];
                     arr.copy_from_slice(&bytes);
                     not_rev_set.insert(arr);
-                }
             }
         }
     }
@@ -273,7 +272,7 @@ fn encode_payload(subject: &[u8], predicate: &str) -> PyResult<Vec<u8>> {
         return Err(pyo3::exceptions::PyValueError::new_err("subject must be 32 bytes"));
     }
     let mut arr = [0u8; 32];
-    arr.copy_from_slice(&subject);
+    arr.copy_from_slice(subject);
     let pred = Predicate::from_u8(match predicate.to_uppercase().as_str() {
         "ATTESTS" => 0, "AUTHORS" => 1, "DERIVED_FROM" => 2,
         "SUPERSEDES" => 3, "REVOKES" => 4, "ENDORSES" => 5,

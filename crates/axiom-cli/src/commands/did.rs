@@ -56,7 +56,7 @@ fn create(args: &DidCreateArgs) -> Result<()> {
     let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
     let vk = sk.verifying_key();
 
-    let enc = multibase::encode(multibase::Base::Base58Btc, &vk.to_bytes());
+    let enc = multibase::encode(multibase::Base::Base58Btc, vk.to_bytes());
     let did = format!("did:{}:{}", args.method, enc);
 
     let name = args.name.clone().unwrap_or_else(|| {

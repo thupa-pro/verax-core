@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use core::ptr;
 use std::collections::{HashMap, HashSet};
 
@@ -129,8 +131,8 @@ pub extern "C" fn axiom_version() -> *const core::ffi::c_char {
         core::sync::atomic::AtomicPtr::new(ptr::null_mut());
 
     let mut stored = VERSION_CSTRING.load(core::sync::atomic::Ordering::Relaxed);
-    if stored.is_null() {
-        if let Ok(cs) = std::ffi::CString::new(VERSION) {
+    if stored.is_null()
+        && let Ok(cs) = std::ffi::CString::new(VERSION) {
             let leaked = cs.into_raw();
             match VERSION_CSTRING.compare_exchange(
                 ptr::null_mut(),
@@ -146,7 +148,6 @@ pub extern "C" fn axiom_version() -> *const core::ffi::c_char {
                     stored = existing;
                 }
             }
-        }
     }
     stored as *const core::ffi::c_char
 }
@@ -474,7 +475,7 @@ pub extern "C" fn axiom_sign_ed25519(
     };
     let sig_bytes = stmt.to_bytes();
     let len = sig_bytes.len();
-    let buf = make_copy(&sig_bytes);
+    let buf = make_copy(sig_bytes);
     if buf.is_null() {
         return error_to_code(&Error::Io("allocation failed".into()));
     }
@@ -529,7 +530,7 @@ pub extern "C" fn axiom_sign_composite(
     };
     let sig_bytes = stmt.to_bytes();
     let len = sig_bytes.len();
-    let buf = make_copy(&sig_bytes);
+    let buf = make_copy(sig_bytes);
     if buf.is_null() {
         return error_to_code(&Error::Io("allocation failed".into()));
     }
@@ -780,27 +781,25 @@ pub extern "C" fn axiom_verify_full(
     let mut rev_set = HashSet::new();
     if !revoked_csv.is_null() {
         let c_str = unsafe { std::ffi::CStr::from_ptr(revoked_csv) };
-        if let Ok(s) = c_str.to_str() {
-            if !s.is_empty() {
+        if let Ok(s) = c_str.to_str()
+            && !s.is_empty() {
                 for h in s.split(',') {
                     if let Some(arr) = hex_hash_to_bytes(h.trim()) {
                         rev_set.insert(arr);
                     }
                 }
-            }
         }
     }
     let mut not_rev_set = HashSet::new();
     if !not_revoked_csv.is_null() {
         let c_str = unsafe { std::ffi::CStr::from_ptr(not_revoked_csv) };
-        if let Ok(s) = c_str.to_str() {
-            if !s.is_empty() {
+        if let Ok(s) = c_str.to_str()
+            && !s.is_empty() {
                 for h in s.split(',') {
                     if let Some(arr) = hex_hash_to_bytes(h.trim()) {
                         not_rev_set.insert(arr);
                     }
                 }
-            }
         }
     }
     let store = FfiTrustStore {

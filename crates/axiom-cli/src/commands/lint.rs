@@ -62,17 +62,15 @@ pub fn run(args: &LintArgs) -> Result<()> {
     }
 
     // Check 6: Lineage check
-    if let Some(lineage) = payload.lineage {
-        if lineage.iter().all(|&b| b == 0) {
+    if let Some(lineage) = payload.lineage
+        && lineage.iter().all(|&b| b == 0) {
             warnings.push("lineage hash is all zeros".into());
-        }
     }
 
     // Check 7: Extensions
-    if let Some(ref exts) = payload.extensions {
-        if !exts.is_empty() {
+    if let Some(ref exts) = payload.extensions
+        && !exts.is_empty() {
             warnings.push(format!("{} custom extension(s) — ensure these are interoperable", exts.len()));
-        }
     }
 
     // Check 8: Payload size
@@ -86,7 +84,7 @@ pub fn run(args: &LintArgs) -> Result<()> {
     let is_ed25519 = if let Ok(prot) = cose::extract_protected(&data) {
         // Search for the algorithm ID in the protected header CBOR map
         // Pattern for Ed25519: key 0x01, value 0x27 (negative 8)
-        prot.windows(4).any(|w| w == &[0x01, 0x27, 0x04, 0x58])
+        prot.windows(4).any(|w| w == [0x01, 0x27, 0x04, 0x58])
     } else {
         true
     };
@@ -108,10 +106,10 @@ pub fn run(args: &LintArgs) -> Result<()> {
         let mut sections = Vec::new();
 
         for wp in &warnings {
-            sections.push(Section { label: wp.clone().into(), status: Status::Warn, detail: None, indent: 1 });
+            sections.push(Section { label: wp.clone(), status: Status::Warn, detail: None, indent: 1 });
         }
         for bp in &best_practices {
-            sections.push(Section { label: bp.clone().into(), status: Status::Info, detail: None, indent: 1 });
+            sections.push(Section { label: bp.clone(), status: Status::Info, detail: None, indent: 1 });
         }
 
         if warnings.is_empty() {
