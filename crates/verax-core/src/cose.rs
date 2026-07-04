@@ -26,7 +26,7 @@
 //! The protected header is a CBOR map with keys:
 //! - `1` (alg) — the COSE algorithm identifier
 //! - `4` (kid) — the key identifier (byte string; for Ed25519 this is the
-//!   32-byte public key; for composite it is `BLAKE3(ml_pk || ed_pk)`)
+//!   32-byte public key; for composite it is `BLAKE3(ed_pk || ml_pk)`)
 //!
 //! # External AAD
 //!
@@ -322,8 +322,8 @@ pub(crate) fn sign_composite_with_unprotected(
 ) -> Result<Vec<u8>> {
     let ed_pk = ed_sk.verifying_key().to_bytes();
     let ml_pk = ml_sk.verifying_key().encode();
-    let mut pk_concat = ml_pk.to_vec();
-    pk_concat.extend_from_slice(&ed_pk);
+    let mut pk_concat = ed_pk.to_vec();
+    pk_concat.extend_from_slice(&ml_pk);
     let kid = crate::hash::blake3(&pk_concat);
     let protected = build_protected_header(-39, &kid);
     let external_aad = build_external_aad(unprotected);
@@ -361,7 +361,7 @@ pub(crate) fn sign_composite_with_unprotected(
 /// Sign a payload with composite Ed25519ph + ML-DSA-65 and return a
 /// COSE_Sign1 envelope (tag 98, algorithm -39).
 ///
-/// The KID is `BLAKE3(ml_pk || ed_pk)`. Ed25519ph uses the context string
+/// The KID is `BLAKE3(ed_pk || ml_pk)`. Ed25519ph uses the context string
 /// `b"Verax-Provenance-v1"`. The unprotected header is an empty CBOR map.
 ///
 /// # Example
@@ -648,8 +648,8 @@ pub fn parse_and_verify_mldsa65_only(
 ///
 /// The KID is stored in the protected header as CBOR map key 4.
 /// For Verax statements, this is the 32-byte Ed25519 public key
-/// (or [`BLAKE3`](crate::hash::blake3) of the concatenated ML-DSA-65 and
-/// Ed25519 public keys for composite signatures).
+/// (or [`BLAKE3`](crate::hash::blake3) of the concatenated Ed25519 and
+/// ML-DSA-65 public keys for composite signatures).
 pub fn extract_kid(data: &[u8]) -> Result<Vec<u8>> {
     let (protected, _unprotected, _payload, _signature) = parse_cose_sign1(data)?;
     let mut offset = 0;
