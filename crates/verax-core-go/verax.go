@@ -7,11 +7,11 @@
 package verax
 
 /*
-#cgo LDFLAGS: -laxiom_core_ffi -lm -ldl
+#cgo LDFLAGS: -lverax_core_ffi -lm -ldl
 #cgo CFLAGS: -I../crates/verax-core-ffi/include
 
 #include <stdlib.h>
-#include "axiom_core.h"
+#include "verax_core.h"
 */
 import "C"
 import (
