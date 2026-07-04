@@ -91,7 +91,7 @@ func (e *VeraxError) Error() string {
 
 // Version returns the Verax library version string.
 func Version() string {
-	cstr := C.axiom_version()
+	cstr := C.verax_version()
 	return C.GoString(cstr)
 }
 
@@ -112,7 +112,7 @@ func VerifyMLDsa65Only(coseData []byte, pubkey []byte) ([]byte, error) {
 		cosePtr = unsafe.Pointer(&coseData[0])
 	}
 	pkPtr := unsafe.Pointer(&pubkey[0])
-	ret := C.axiom_verify_mldsa65_only(
+	ret := C.verax_verify_mldsa65_only(
 		(*C.uint8_t)(cosePtr), C.size_t(len(coseData)),
 		(*C.uint8_t)(pkPtr), C.size_t(len(pubkey)),
 		&outPayload, &outLen,
@@ -124,7 +124,7 @@ func VerifyMLDsa65Only(coseData []byte, pubkey []byte) ([]byte, error) {
 		return nil, &VeraxError{Code: ErrDecode, Message: "null output"}
 	}
 	payloadBytes := C.GoBytes(unsafe.Pointer(outPayload), C.int(outLen))
-	C.axiom_free(unsafe.Pointer(outPayload))
+	C.verax_free(unsafe.Pointer(outPayload))
 	return payloadBytes, nil
 }
 
@@ -141,7 +141,7 @@ func VerifyEd25519(coseData []byte, pubkey []byte) ([]byte, error) {
 		cosePtr = unsafe.Pointer(&coseData[0])
 	}
 	pkPtr := unsafe.Pointer(&pubkey[0])
-	ret := C.axiom_verify_ed25519(
+	ret := C.verax_verify_ed25519(
 		(*C.uint8_t)(cosePtr), C.size_t(len(coseData)),
 		(*C.uint8_t)(pkPtr), C.size_t(len(pubkey)),
 		&outPayload, &outLen,
@@ -153,7 +153,7 @@ func VerifyEd25519(coseData []byte, pubkey []byte) ([]byte, error) {
 		return nil, &VeraxError{Code: ErrDecode, Message: "null output"}
 	}
 	payloadBytes := C.GoBytes(unsafe.Pointer(outPayload), C.int(outLen))
-	C.axiom_free(unsafe.Pointer(outPayload))
+	C.verax_free(unsafe.Pointer(outPayload))
 	return payloadBytes, nil
 }
 
@@ -179,7 +179,7 @@ func VerifyComposite(coseData []byte, edPubkey []byte, mlDsaPubkey []byte) ([]by
 	}
 	edPtr := unsafe.Pointer(&edPubkey[0])
 	mlPtr := unsafe.Pointer(&mlDsaPubkey[0])
-	ret := C.axiom_verify_composite(
+	ret := C.verax_verify_composite(
 		(*C.uint8_t)(cosePtr), C.size_t(len(coseData)),
 		(*C.uint8_t)(edPtr), C.size_t(len(edPubkey)),
 		(*C.uint8_t)(mlPtr), C.size_t(len(mlDsaPubkey)),
@@ -192,7 +192,7 @@ func VerifyComposite(coseData []byte, edPubkey []byte, mlDsaPubkey []byte) ([]by
 		return nil, &VeraxError{Code: ErrDecode, Message: "null output"}
 	}
 	payloadBytes := C.GoBytes(unsafe.Pointer(outPayload), C.int(outLen))
-	C.axiom_free(unsafe.Pointer(outPayload))
+	C.verax_free(unsafe.Pointer(outPayload))
 	return payloadBytes, nil
 }
 
@@ -209,7 +209,7 @@ func SignEd25519(payloadCbor []byte, keyBytes []byte) ([]byte, error) {
 	if len(keyBytes) > 0 {
 		keyPtr = unsafe.Pointer(&keyBytes[0])
 	}
-	ret := C.axiom_sign_ed25519(
+	ret := C.verax_sign_ed25519(
 		(*C.uint8_t)(payloadPtr), C.size_t(len(payloadCbor)),
 		(*C.uint8_t)(keyPtr), C.size_t(len(keyBytes)),
 		&outSig, &outSigLen,
@@ -218,7 +218,7 @@ func SignEd25519(payloadCbor []byte, keyBytes []byte) ([]byte, error) {
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	sigBytes := C.GoBytes(unsafe.Pointer(outSig), C.int(outSigLen))
-	C.axiom_free(unsafe.Pointer(outSig))
+	C.verax_free(unsafe.Pointer(outSig))
 	return sigBytes, nil
 }
 
@@ -240,7 +240,7 @@ func SignComposite(payloadCbor []byte, edKeyBytes []byte, mlSeedBytes []byte) ([
 	if len(mlSeedBytes) > 0 {
 		mlPtr = unsafe.Pointer(&mlSeedBytes[0])
 	}
-	ret := C.axiom_sign_composite(
+	ret := C.verax_sign_composite(
 		(*C.uint8_t)(payloadPtr), C.size_t(len(payloadCbor)),
 		(*C.uint8_t)(edPtr), C.size_t(len(edKeyBytes)),
 		(*C.uint8_t)(mlPtr), C.size_t(len(mlSeedBytes)),
@@ -250,7 +250,7 @@ func SignComposite(payloadCbor []byte, edKeyBytes []byte, mlSeedBytes []byte) ([
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	sigBytes := C.GoBytes(unsafe.Pointer(outSig), C.int(outSigLen))
-	C.axiom_free(unsafe.Pointer(outSig))
+	C.verax_free(unsafe.Pointer(outSig))
 	return sigBytes, nil
 }
 
@@ -267,7 +267,7 @@ func EncryptPII(key []byte, plaintext []byte) ([]byte, error) {
 	if len(plaintext) > 0 {
 		ptPtr = unsafe.Pointer(&plaintext[0])
 	}
-	ret := C.axiom_encrypt_pii(
+	ret := C.verax_encrypt_pii(
 		(*C.uint8_t)(keyPtr), C.size_t(len(key)),
 		(*C.uint8_t)(ptPtr), C.size_t(len(plaintext)),
 		&outCt, &outCtLen,
@@ -276,7 +276,7 @@ func EncryptPII(key []byte, plaintext []byte) ([]byte, error) {
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	ctBytes := C.GoBytes(unsafe.Pointer(outCt), C.int(outCtLen))
-	C.axiom_free(unsafe.Pointer(outCt))
+	C.verax_free(unsafe.Pointer(outCt))
 	return ctBytes, nil
 }
 
@@ -293,7 +293,7 @@ func DecryptPII(key []byte, ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) > 0 {
 		ctPtr = unsafe.Pointer(&ciphertext[0])
 	}
-	ret := C.axiom_decrypt_pii(
+	ret := C.verax_decrypt_pii(
 		(*C.uint8_t)(keyPtr), C.size_t(len(key)),
 		(*C.uint8_t)(ctPtr), C.size_t(len(ciphertext)),
 		&outPt, &outPtLen,
@@ -302,7 +302,7 @@ func DecryptPII(key []byte, ciphertext []byte) ([]byte, error) {
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	ptBytes := C.GoBytes(unsafe.Pointer(outPt), C.int(outPtLen))
-	C.axiom_free(unsafe.Pointer(outPt))
+	C.verax_free(unsafe.Pointer(outPt))
 	return ptBytes, nil
 }
 
@@ -328,7 +328,7 @@ func ShreddingCommit(key []byte, plaintext []byte) (*ShreddingCommitResult, erro
 	if len(plaintext) > 0 {
 		ptPtr = unsafe.Pointer(&plaintext[0])
 	}
-	ret := C.axiom_shredding_commit(
+	ret := C.verax_shredding_commit(
 		(*C.uint8_t)(keyPtr), C.size_t(len(key)),
 		(*C.uint8_t)(ptPtr), C.size_t(len(plaintext)),
 		&outCt, &outCtLen,
@@ -338,9 +338,9 @@ func ShreddingCommit(key []byte, plaintext []byte) (*ShreddingCommitResult, erro
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	ctBytes := C.GoBytes(unsafe.Pointer(outCt), C.int(outCtLen))
-	C.axiom_free(unsafe.Pointer(outCt))
+	C.verax_free(unsafe.Pointer(outCt))
 	commBytes := C.GoBytes(unsafe.Pointer(outComm), C.int(outCommLen))
-	C.axiom_free(unsafe.Pointer(outComm))
+	C.verax_free(unsafe.Pointer(outComm))
 	return &ShreddingCommitResult{Ciphertext: ctBytes, Commitment: commBytes}, nil
 }
 
@@ -353,7 +353,7 @@ func EncodePayload(subject []byte, predicate uint32) ([]byte, error) {
 	if len(subject) > 0 {
 		subjPtr = unsafe.Pointer(&subject[0])
 	}
-	ret := C.axiom_encode_payload(
+	ret := C.verax_encode_payload(
 		(*C.uint8_t)(subjPtr), C.size_t(len(subject)),
 		C.uint32_t(predicate),
 		&outCbor, &outCborLen,
@@ -362,7 +362,7 @@ func EncodePayload(subject []byte, predicate uint32) ([]byte, error) {
 		return nil, &VeraxError{Code: int(ret), Message: errorNames[int(ret)]}
 	}
 	cborBytes := C.GoBytes(unsafe.Pointer(outCbor), C.int(outCborLen))
-	C.axiom_free(unsafe.Pointer(outCbor))
+	C.verax_free(unsafe.Pointer(outCbor))
 	return cborBytes, nil
 }
 
@@ -396,7 +396,7 @@ func DecodePayload(cborData []byte) (*PayloadFields, error) {
 	if len(cborData) > 0 {
 		cborPtr = unsafe.Pointer(&cborData[0])
 	}
-	ret := C.axiom_payload_decode(
+	ret := C.verax_payload_decode(
 		(*C.uint8_t)(cborPtr), C.size_t(len(cborData)),
 		(*C.uint8_t)(&subject[0]), &predicate, &timestamp,
 		&hasObject, (*C.uint8_t)(&object[0]),
@@ -480,7 +480,7 @@ func VerifyFull(coseData []byte, pubkey []byte, trustedLogKey []byte, chainState
 		pkPtr = unsafe.Pointer(&pubkey[0])
 	}
 
-	ret := C.axiom_verify_full(
+	ret := C.verax_verify_full(
 		(*C.uint8_t)(cosePtr), C.size_t(len(coseData)),
 		(*C.uint8_t)(pkPtr), C.size_t(len(pubkey)),
 		tlkPtr, tlkLen,
@@ -501,12 +501,12 @@ func VerifyFull(coseData []byte, pubkey []byte, trustedLogKey []byte, chainState
 	var payload []byte
 	if result.payload != nil {
 		payload = C.GoBytes(unsafe.Pointer(result.payload), C.int(result.payload_len))
-		C.axiom_free(unsafe.Pointer(result.payload))
+		C.verax_free(unsafe.Pointer(result.payload))
 	}
 	var warnings []string
 	if result.warnings != nil {
 		warnStr := C.GoString((*C.char)(unsafe.Pointer(result.warnings)))
-		C.axiom_free(unsafe.Pointer(result.warnings))
+		C.verax_free(unsafe.Pointer(result.warnings))
 		if warnStr != "" {
 			warnings = splitCSV(warnStr)
 		}
