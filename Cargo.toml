@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/axiom-core",
+    "crates/axiom-core-ffi",
+    "crates/axiom-core-python",
+    "crates/axiom-core-node",
+    "crates/axiom-cli",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+description = "Axiom Protocol — Verifiable Digital Provenance Based on Minimalist DAGs and Deterministic Encoding"
+repository = "https://github.com/thupa-pro/axiom-core"
+homepage = "https://github.com/axiom-protocol/axiom#readme"
+authors = ["Axiom Protocol Contributors"]

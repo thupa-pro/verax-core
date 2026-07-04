@@ -1,0 +1,29 @@
+# Core protocol crate
+/crates/axiom-core/        @anomalyco
+
+# CLI
+/crates/axiom-cli/         @anomalyco
+
+# FFI bindings
+/crates/axiom-core-ffi/    @anomalyco
+/crates/axiom-core-go/     @anomalyco
+
+# Language bindings
+/crates/axiom-core-python/ @anomalyco
+/crates/axiom-core-node/   @anomalyco
+
+# Formal proofs
+/formal/                   @anomalyco
+/crates/axiom-core/coq/    @anomalyco
+
+# Documentation
+/docs/                     @anomalyco
+/*.md                      @anomalyco
+
+# CI/CD
+/.github/                  @anomalyco
+/Makefile                  @anomalyco
+
+# Root config
+/Cargo.toml                @anomalyco
+/deny.toml                 @anomalyco

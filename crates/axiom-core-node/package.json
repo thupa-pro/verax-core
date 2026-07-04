@@ -1,0 +1,21 @@
+{
+  "name": "axiom-core-node",
+  "version": "1.0.0",
+  "description": "Node.js bindings for Axiom Protocol Core",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js",
+    "build": "npm run build-release",
+    "build-release": "napi build --platform --release",
+    "build-debug": "napi build --platform"
+  },
+  "napi": {
+    "name": "axiom-core-node",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  }
+}

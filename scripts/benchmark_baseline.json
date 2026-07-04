@@ -1,0 +1,8 @@
+{
+  "blake3_hash_us": 0.5,
+  "ed25519_sign_us": 25.0,
+  "ed25519_verify_us": 35.0,
+  "cbor_encode_us": 1.0,
+  "cbor_decode_us": 2.0,
+  "threshold_multiplier": 2.0
+}

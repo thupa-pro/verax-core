@@ -1,0 +1,52 @@
+# cargo-deny configuration
+# Install: cargo install cargo-deny
+# Run:     cargo deny check
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "deny"
+unsound = "deny"
+severity-threshold = "low"
+ignore = []
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "0BSD",
+    "MPL-2.0",
+]
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "LGPL-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "AGPL-3.0",
+    "CC-BY-SA-4.0",
+]
+confidence-threshold = 0.8
+allow-osi-fsf-free = "neither"
+default = "deny"
+
+[[licenses.clarify]]
+name = "webpki"
+expression = "ISC"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
+[bans]
+multiple-versions = "deny"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+unknown-registry = "deny"
+unknown-git = "deny"
