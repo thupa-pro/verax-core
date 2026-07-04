@@ -15,6 +15,8 @@ fn map_err<E: std::fmt::Display>(e: E) -> napi::Error {
     napi::Error::from_reason(e.to_string())
 }
 
+/// A decoded Axiom payload with subject, predicate, object, timestamp,
+/// lineage, nonce, and anchor_hash fields.
 #[napi(object)]
 #[derive(Clone)]
 pub struct JsPayload {
@@ -27,6 +29,8 @@ pub struct JsPayload {
     pub anchor_hash: Option<Buffer>,
 }
 
+/// The result of a full protocol verification, indicating validity,
+/// decoded payload, warnings, and any error information.
 #[napi(object)]
 pub struct JsVerificationResult {
     pub valid: bool,
@@ -38,6 +42,7 @@ pub struct JsVerificationResult {
     pub error_code: Option<i32>,
 }
 
+/// Internal trust store implementation for full verification.
 struct NapiTrustStore {
     ed_vk: Option<ed25519_dalek::VerifyingKey>,
     chain_cache: HashMap<[u8; 32], Vec<u8>>,
@@ -126,11 +131,17 @@ fn payload_to_js(payload: &AxiomPayload) -> JsPayload {
     }
 }
 
+/// Returns the Axiom library version string.
 #[napi]
 pub fn version() -> String {
     concat!("axiom-core ", env!("CARGO_PKG_VERSION")).to_string()
 }
 
+/// Verifies an Ed25519-signed COSE statement and returns the decoded payload.
+/// @param cose - The COSE-encoded statement bytes.
+/// @param pubkey - The 32-byte Ed25519 public key.
+/// @returns The decoded payload as a Buffer.
+/// @throws If the signature is invalid or input is malformed.
 #[napi]
 pub fn verify_ed25519(cose: Buffer, pubkey: Buffer) -> Result<Buffer> {
     let arr: [u8; 32] = pubkey.as_ref().try_into().map_err(|_| {
@@ -142,6 +153,12 @@ pub fn verify_ed25519(cose: Buffer, pubkey: Buffer) -> Result<Buffer> {
     Ok(payload.into())
 }
 
+/// Verifies a Composite (Ed25519 + ML-DSA-65) COSE statement.
+/// @param cose - The COSE-encoded statement bytes.
+/// @param ed_pubkey - The 32-byte Ed25519 public key.
+/// @param ml_dsa_pubkey - The 1952-byte ML-DSA-65 public key.
+/// @returns The decoded payload as a Buffer.
+/// @throws If the signature is invalid or input is malformed.
 #[napi]
 pub fn verify_composite(cose: Buffer, ed_pubkey: Buffer, ml_dsa_pubkey: Buffer) -> Result<Buffer> {
     let ed_arr: [u8; 32] = ed_pubkey.as_ref().try_into().map_err(|_| {
@@ -160,6 +177,16 @@ pub fn verify_composite(cose: Buffer, ed_pubkey: Buffer, ml_dsa_pubkey: Buffer) 
     Ok(payload.into())
 }
 
+/// Performs full protocol verification including signature check, CT log
+/// anchoring, chain resolution, and revocation status.
+/// @param cose - The COSE-encoded statement bytes.
+/// @param pubkey - The 32-byte Ed25519 public key.
+/// @param chain_statements - Optional array of parent statement Buffers.
+/// @param trusted_log_key - Optional 32-byte trusted CT log public key.
+/// @param revoked - Optional array of hex-encoded revoked statement hashes.
+/// @param not_revoked - Optional array of hex-encoded non-revoked hashes.
+/// @param checkpoint_timestamp - Optional checkpoint timestamp (i64).
+/// @returns A JsVerificationResult object.
 #[napi]
 pub fn verify_full(
     cose: Buffer,
@@ -242,12 +269,22 @@ pub fn verify_full(
     }
 }
 
+/// Decodes a CBOR-encoded Axiom payload into a JsPayload object.
+/// @param cbor - The CBOR-encoded payload bytes.
+/// @returns A JsPayload with subject, predicate, object, timestamp, lineage,
+///   nonce, and anchor_hash fields.
+/// @throws If the payload is malformed.
 #[napi]
 pub fn decode_payload(cbor: Buffer) -> Result<JsPayload> {
     let p = AxiomPayload::decode(cbor.as_ref()).map_err(map_err)?;
     Ok(payload_to_js(&p))
 }
 
+/// Creates a CBOR-encoded Axiom payload from a subject hash and predicate name.
+/// @param subject - A 32-byte subject hash Buffer.
+/// @param predicate - The predicate name (e.g. "ATTESTS", "AUTHORS", etc.).
+/// @returns The CBOR-encoded payload as a Buffer.
+/// @throws If subject is not 32 bytes or predicate is unknown.
 #[napi]
 pub fn encode_payload(subject: Buffer, predicate: String) -> Result<Buffer> {
     let arr: [u8; 32] = subject.as_ref().try_into().map_err(|_| {
@@ -263,6 +300,11 @@ pub fn encode_payload(subject: Buffer, predicate: String) -> Result<Buffer> {
     Ok(payload.encode().into())
 }
 
+/// Signs a payload CBOR with an Ed25519 signing key.
+/// @param payload_cbor - The CBOR-encoded payload Buffer.
+/// @param key_bytes - The 32-byte Ed25519 signing key (seed) Buffer.
+/// @returns The COSE-encoded statement as a Buffer.
+/// @throws If key length is invalid or payload decode fails.
 #[napi]
 pub fn sign_ed25519(payload_cbor: Buffer, key_bytes: Buffer) -> Result<Buffer> {
     let arr: [u8; 32] = key_bytes.as_ref().try_into().map_err(|_| {
@@ -274,6 +316,12 @@ pub fn sign_ed25519(payload_cbor: Buffer, key_bytes: Buffer) -> Result<Buffer> {
     Ok(stmt.to_bytes().to_vec().into())
 }
 
+/// Signs a payload CBOR with a Composite (Ed25519 + ML-DSA-65) key pair.
+/// @param payload_cbor - The CBOR-encoded payload Buffer.
+/// @param ed_key_bytes - The 32-byte Ed25519 signing key (seed) Buffer.
+/// @param ml_seed_bytes - The 32-byte ML-DSA-65 seed Buffer.
+/// @returns The COSE-encoded statement as a Buffer.
+/// @throws If key length is invalid or payload decode fails.
 #[napi]
 pub fn sign_composite(payload_cbor: Buffer, ed_key_bytes: Buffer, ml_seed_bytes: Buffer) -> Result<Buffer> {
     let ed_arr: [u8; 32] = ed_key_bytes.as_ref().try_into().map_err(|_| {
@@ -290,18 +338,33 @@ pub fn sign_composite(payload_cbor: Buffer, ed_key_bytes: Buffer, ml_seed_bytes:
     Ok(stmt.to_bytes().to_vec().into())
 }
 
+/// Encrypts plaintext using a ShreddingKey for PII protection.
+/// @param key_bytes - The 32-byte shredding key Buffer.
+/// @param plaintext - The plaintext Buffer to encrypt.
+/// @returns The ciphertext as a Buffer.
+/// @throws If the key length is invalid.
 #[napi]
 pub fn encrypt(key_bytes: Buffer, plaintext: Buffer) -> Result<Buffer> {
     let key = ShreddingKey::from_bytes(key_bytes.as_ref()).map_err(map_err)?;
     encrypt_pii(&key, plaintext.as_ref()).map_err(map_err).map(|c| c.into())
 }
 
+/// Decrypts ciphertext using a ShreddingKey.
+/// @param key_bytes - The 32-byte shredding key Buffer.
+/// @param ciphertext - The ciphertext Buffer to decrypt.
+/// @returns The plaintext as a Buffer.
+/// @throws If the key length is invalid or decryption fails.
 #[napi]
 pub fn decrypt(key_bytes: Buffer, ciphertext: Buffer) -> Result<Buffer> {
     let key = ShreddingKey::from_bytes(key_bytes.as_ref()).map_err(map_err)?;
     decrypt_pii(&key, ciphertext.as_ref()).map_err(map_err).map(|p| p.into())
 }
 
+/// Performs encrypt-and-commit in one operation for PII shredding.
+/// @param key_bytes - The 32-byte shredding key Buffer.
+/// @param plaintext - The plaintext Buffer to process.
+/// @returns An array of two Buffers: [ciphertext, commitment].
+/// @throws If the key length is invalid.
 #[napi]
 pub fn shredding_commit_fn(key_bytes: Buffer, plaintext: Buffer) -> Result<Vec<Buffer>> {
     let key = ShreddingKey::from_bytes(key_bytes.as_ref()).map_err(map_err)?;

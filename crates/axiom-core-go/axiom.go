@@ -1,3 +1,9 @@
+// Package axiom provides Go bindings for the Axiom Protocol.
+// It wraps the axiom-core-ffi C library to enable creation and verification
+// of signed statements (Ed25519 and Composite Ed25519+ML-DSA-65), PII
+// shredding (encrypt/decrypt/commit), payload encoding/decoding, and full
+// protocol verification with trust store, CT log anchoring, and revocation
+// cache support.
 package axiom
 
 /*
@@ -16,23 +22,38 @@ import (
 	"unsafe"
 )
 
-// Error codes matching the C-ABI
+// Error codes matching the C-ABI (Section B of the Axiom spec).
 const (
-	ErrMalformedCose    = 1
-	ErrNonCanonical     = 2
+	// ErrMalformedCose indicates the COSE envelope is malformed or invalid.
+	ErrMalformedCose = 1
+	// ErrNonCanonical indicates the encoding is not strictly canonical.
+	ErrNonCanonical = 2
+	// ErrInvalidSignature indicates the cryptographic signature is invalid.
 	ErrInvalidSignature = 3
-	ErrBrokenLineage    = 4
-	ErrLineageSubject   = 5
-	ErrTimestampViol    = 6
-	ErrRevokeIssuer     = 7
-	ErrInvalidLogProof  = 8
-	ErrRevoked          = 9
-	ErrInvalidField     = 10
-	ErrCrypto           = 11
-	ErrDecode           = 12
-	ErrHashLength       = 13
-	ErrIo               = 14
-	ErrPayload          = 15
+	// ErrBrokenLineage indicates a lineage chain is broken or inconsistent.
+	ErrBrokenLineage = 4
+	// ErrLineageSubject indicates a lineage subject hash mismatch.
+	ErrLineageSubject = 5
+	// ErrTimestampViol indicates a timestamp monotonicity violation.
+	ErrTimestampViol = 6
+	// ErrRevokeIssuer indicates a revoke issuer mismatch.
+	ErrRevokeIssuer = 7
+	// ErrInvalidLogProof indicates an invalid CT log inclusion proof.
+	ErrInvalidLogProof = 8
+	// ErrRevoked indicates the statement has been revoked.
+	ErrRevoked = 9
+	// ErrInvalidField indicates an invalid field value or length.
+	ErrInvalidField = 10
+	// ErrCrypto indicates a general cryptographic operation failure.
+	ErrCrypto = 11
+	// ErrDecode indicates a payload decode failure.
+	ErrDecode = 12
+	// ErrHashLength indicates an unexpected hash length.
+	ErrHashLength = 13
+	// ErrIo indicates an I/O operation failure.
+	ErrIo = 14
+	// ErrPayload indicates a payload encoding or validation error.
+	ErrPayload = 15
 )
 
 var errorNames = map[int]string{
@@ -53,6 +74,8 @@ var errorNames = map[int]string{
 	ErrPayload:          "Payload",
 }
 
+// AxiomError represents an error returned by the Axiom C-ABI with a
+// numeric error code and a human-readable message.
 type AxiomError struct {
 	Code    int
 	Message string
@@ -66,15 +89,14 @@ func (e *AxiomError) Error() string {
 	return fmt.Sprintf("Axiom error %d (%s): %s", e.Code, name, e.Message)
 }
 
-// ----- Version -----
-
+// Version returns the Axiom library version string.
 func Version() string {
 	cstr := C.axiom_version()
 	return C.GoString(cstr)
 }
 
-// ----- Verification (basic) -----
-
+// VerifyMLDsa65Only verifies an ML-DSA-65 only signature and returns the
+// decoded payload CBOR on success.
 func VerifyMLDsa65Only(coseData []byte, pubkey []byte) ([]byte, error) {
 	expectedMLDsaLen := 1952
 	if len(pubkey) != expectedMLDsaLen {
@@ -106,6 +128,8 @@ func VerifyMLDsa65Only(coseData []byte, pubkey []byte) ([]byte, error) {
 	return payloadBytes, nil
 }
 
+// VerifyEd25519 verifies an Ed25519-signed COSE statement and returns the
+// decoded payload CBOR. pubkey must be exactly 32 bytes.
 func VerifyEd25519(coseData []byte, pubkey []byte) ([]byte, error) {
 	if len(pubkey) != 32 {
 		return nil, &AxiomError{Code: ErrInvalidField, Message: "Ed25519 pubkey must be 32 bytes"}
@@ -133,6 +157,9 @@ func VerifyEd25519(coseData []byte, pubkey []byte) ([]byte, error) {
 	return payloadBytes, nil
 }
 
+// VerifyComposite verifies a Composite (Ed25519 + ML-DSA-65) COSE statement
+// and returns the decoded payload CBOR. edPubkey must be 32 bytes and
+// mlDsaPubkey must be 1952 bytes.
 func VerifyComposite(coseData []byte, edPubkey []byte, mlDsaPubkey []byte) ([]byte, error) {
 	if len(edPubkey) != 32 {
 		return nil, &AxiomError{Code: ErrInvalidField, Message: "Ed25519 pubkey must be 32 bytes"}
@@ -169,8 +196,8 @@ func VerifyComposite(coseData []byte, edPubkey []byte, mlDsaPubkey []byte) ([]by
 	return payloadBytes, nil
 }
 
-// ----- Signing -----
-
+// SignEd25519 signs a payload CBOR with an Ed25519 signing key and returns
+// the COSE-encoded statement. keyBytes must be exactly 32 bytes (seed).
 func SignEd25519(payloadCbor []byte, keyBytes []byte) ([]byte, error) {
 	var outSig *C.uint8_t
 	var outSigLen C.size_t
@@ -195,6 +222,9 @@ func SignEd25519(payloadCbor []byte, keyBytes []byte) ([]byte, error) {
 	return sigBytes, nil
 }
 
+// SignComposite signs a payload CBOR with a Composite (Ed25519 + ML-DSA-65)
+// key pair and returns the COSE-encoded statement. edKeyBytes must be 32
+// bytes and mlSeedBytes must be 32 bytes.
 func SignComposite(payloadCbor []byte, edKeyBytes []byte, mlSeedBytes []byte) ([]byte, error) {
 	var outSig *C.uint8_t
 	var outSigLen C.size_t
@@ -224,8 +254,8 @@ func SignComposite(payloadCbor []byte, edKeyBytes []byte, mlSeedBytes []byte) ([
 	return sigBytes, nil
 }
 
-// ----- PII Shredding -----
-
+// EncryptPII encrypts plaintext using a ShreddingKey and returns the
+// ciphertext. key must be exactly 32 bytes.
 func EncryptPII(key []byte, plaintext []byte) ([]byte, error) {
 	var outCt *C.uint8_t
 	var outCtLen C.size_t
@@ -250,6 +280,8 @@ func EncryptPII(key []byte, plaintext []byte) ([]byte, error) {
 	return ctBytes, nil
 }
 
+// DecryptPII decrypts ciphertext using a ShreddingKey and returns the
+// plaintext. key must be exactly 32 bytes.
 func DecryptPII(key []byte, ciphertext []byte) ([]byte, error) {
 	var outPt *C.uint8_t
 	var outPtLen C.size_t
@@ -274,11 +306,15 @@ func DecryptPII(key []byte, ciphertext []byte) ([]byte, error) {
 	return ptBytes, nil
 }
 
+// ShreddingCommitResult holds the ciphertext and commitment output from
+// a shredding commit operation.
 type ShreddingCommitResult struct {
 	Ciphertext []byte
 	Commitment []byte
 }
 
+// ShreddingCommit performs encrypt-and-commit in one operation, returning
+// both the ciphertext and the blinding commitment.
 func ShreddingCommit(key []byte, plaintext []byte) (*ShreddingCommitResult, error) {
 	var outCt *C.uint8_t
 	var outCtLen C.size_t
@@ -308,8 +344,8 @@ func ShreddingCommit(key []byte, plaintext []byte) (*ShreddingCommitResult, erro
 	return &ShreddingCommitResult{Ciphertext: ctBytes, Commitment: commBytes}, nil
 }
 
-// ----- Payload -----
-
+// EncodePayload creates a CBOR-encoded AxiomPayload from a 32-byte subject
+// hash and a predicate value.
 func EncodePayload(subject []byte, predicate uint32) ([]byte, error) {
 	var outCbor *C.uint8_t
 	var outCborLen C.size_t
@@ -330,6 +366,7 @@ func EncodePayload(subject []byte, predicate uint32) ([]byte, error) {
 	return cborBytes, nil
 }
 
+// PayloadFields holds the decoded fields of an AxiomPayload.
 type PayloadFields struct {
 	Subject     string  `json:"subject_hex"`
 	Predicate   uint32  `json:"predicate"`
@@ -342,6 +379,9 @@ type PayloadFields struct {
 	Lineage     string  `json:"lineage_hex,omitempty"`
 }
 
+// DecodePayload decodes a CBOR-encoded AxiomPayload and returns the
+// parsed fields including subject, predicate, timestamp, object, nonce,
+// and lineage.
 func DecodePayload(cborData []byte) (*PayloadFields, error) {
 	var subject [32]byte
 	var predicate C.uint32_t
@@ -391,6 +431,7 @@ func DecodePayload(cborData []byte) (*PayloadFields, error) {
 
 // ----- Full Verification -----
 
+// VerificationResult holds the outcome of a full protocol verification.
 type VerificationResult struct {
 	Valid    bool     `json:"valid"`
 	Payload  []byte   `json:"payload,omitempty"`
@@ -398,6 +439,9 @@ type VerificationResult struct {
 	Error    string   `json:"error,omitempty"`
 }
 
+// VerifyFull performs full protocol verification including signature check,
+// CT log anchoring, chain resolution, and revocation status. It returns a
+// VerificationResult containing validity, payload, warnings, and errors.
 func VerifyFull(coseData []byte, pubkey []byte, trustedLogKey []byte, chainStatements [][]byte, revoked []string, notRevoked []string, checkpointTimestamp uint64) (*VerificationResult, error) {
 	var tlkPtr *C.uint8_t
 	tlkLen := C.size_t(0)
@@ -506,6 +550,7 @@ func splitCSV(s string) []string {
 
 // ----- Conformance Suite -----
 
+// TestVector represents a single test case in a conformance suite.
 type TestVector struct {
 	Name          string `json:"name"`
 	IsValid       bool   `json:"is_valid"`
@@ -519,6 +564,8 @@ type TestVector struct {
 	MLDsaPubkey   string `json:"ml_dsa_pubkey_hex,omitempty"`
 }
 
+// ConformanceSuite defines a set of test vectors for validating an
+// Axiom protocol implementation.
 type ConformanceSuite struct {
 	Version        string       `json:"version"`
 	Description    string       `json:"description"`
@@ -529,6 +576,8 @@ type ConformanceSuite struct {
 	Vectors        []TestVector `json:"vectors"`
 }
 
+// LoadConformanceSuite reads and parses a JSON conformance suite file
+// from the given path.
 func LoadConformanceSuite(path string) (*ConformanceSuite, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

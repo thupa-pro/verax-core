@@ -1,25 +1,71 @@
+//! Certificate Transparency (CT) integration for the Axiom Protocol.
+//!
+//! This module implements RFC 9162-style Merkle tree inclusion proofs and
+//! signed tree head verification, binding Axiom statements to public CT logs.
+//!
+//! # Overview
+//!
+//! A [`TemporalAnchor`] is embedded in the unprotected header of a COSE_Sign1
+//! envelope and proves that a statement's payload hash was included in a
+//! transparency log at a particular point in time. It consists of two parts:
+//!
+//! 1. **[`LogInclusionProof`]** — a Merkle tree audit path from the leaf
+//!    containing the payload hash up to the root hash. Verified via
+//!    [`verify`](LogInclusionProof::verify) using SHA-256 with the RFC 9162
+//!    node labeling scheme (`0x00` for leaves, `0x01` for internal nodes).
+//! 2. **[`SignedTreeHead`]** — the log's signed commitment at a given tree
+//!    size and timestamp, carrying a root hash and an Ed25519 signature over
+//!    `(timestamp ‖ tree_size ‖ root_hash)`.
+//!
+//! The top-level [`extract_temporal_anchor`] function parses the anchor from
+//! a COSE envelope's unprotected header by looking for the text-map keys
+//! `"log_inclusion_proof"` and `"log_sth"`.
+
 use alloc::vec::Vec;
 use sha2::Digest as _;
 use crate::error::{Error, Result};
 
+/// A Merkle tree inclusion proof for a single leaf, as defined in RFC 9162.
+///
+/// The proof consists of the leaf's index in the tree and the audit path
+/// (sibling hashes) needed to recompute the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogInclusionProof {
+    /// Index of the leaf in the Merkle tree (0-based).
     pub leaf_index: u64,
+    /// Audit path: sibling hashes from the leaf up to the root. Each hash
+    /// is 32 bytes (SHA-256 output).
     pub siblings: Vec<[u8; 32]>,
 }
 
+/// A signed tree head (STH) from a CT log, committing to the state of the
+/// Merkle tree at a given timestamp.
+///
+/// The STH is signed by the log's Ed25519 key over the byte string
+/// `timestamp (8-byte BE) ‖ tree_size (8-byte BE) ‖ root_hash (32 bytes)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedTreeHead {
+    /// Timestamp (seconds since epoch) when the STH was issued.
     pub timestamp: u64,
+    /// Number of leaves in the tree at this STH.
     pub tree_size: u64,
+    /// Root hash of the Merkle tree (SHA-256).
     pub root_hash: [u8; 32],
+    /// Ed25519 signature over `(timestamp ‖ tree_size ‖ root_hash)` (64 bytes).
     pub signature: Vec<u8>,
+    /// Log's Ed25519 public key (32 bytes).
     pub log_pubkey: Vec<u8>,
+    /// Log identifier, computed as `BLAKE3(log_pubkey)` (32 bytes).
     pub log_id: Vec<u8>,
+    /// Tree hash algorithm identifier. Must be 0 (SHA-256) for verification.
     pub tree_hash_algorithm: u64,
 }
 
 impl SignedTreeHead {
+    /// Create a new [`SignedTreeHead`].
+    ///
+    /// The `log_id` is automatically computed as `BLAKE3(log_pubkey)` and
+    /// `tree_hash_algorithm` defaults to 0 (SHA-256).
     pub fn new(
         timestamp: u64,
         tree_size: u64,
@@ -40,13 +86,28 @@ impl SignedTreeHead {
     }
 }
 
+/// A temporal anchor binding a signed statement to a CT log entry.
+///
+/// Contains both the Merkle inclusion proof and the corresponding signed
+/// tree head. Extracted from the COSE_Sign1 unprotected header via
+/// [`extract_temporal_anchor`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemporalAnchor {
+    /// Merkle tree inclusion proof for the statement's payload hash.
     pub inclusion_proof: LogInclusionProof,
+    /// Signed tree head committing to the root hash and timestamp.
     pub signed_tree_head: SignedTreeHead,
 }
 
 impl LogInclusionProof {
+    /// Verify the inclusion proof against a leaf hash and a root hash.
+    ///
+    /// Recomputes the Merkle root by walking the audit path following the
+    /// RFC 9162 labeling scheme:
+    /// - Leaf nodes are hashed as `SHA-256(0x00 ‖ leaf_hash)`.
+    /// - Internal nodes are hashed as `SHA-256(0x01 ‖ left ‖ right)`.
+    ///
+    /// Returns `true` if the computed root matches the given `root`.
     pub fn verify(&self, leaf_hash: &[u8; 32], root: &[u8; 32]) -> bool {
         let computed = self.compute_root(leaf_hash);
         computed == *root
@@ -78,6 +139,11 @@ impl LogInclusionProof {
 }
 
 impl LogInclusionProof {
+    /// Deserialize a [`LogInclusionProof`] from CBOR at the given offset.
+    ///
+    /// Expected CBOR map layout:
+    /// - Key 1: `leaf_index` (uint)
+    /// - Key 2: `siblings` (array of 32-byte byte strings)
     pub fn from_cbor(data: &[u8], offset: &mut usize) -> Result<Self> {
         let map_len = crate::cbor::decode_map_len(data, offset)?;
         let mut leaf_index = 0u64;
@@ -106,6 +172,16 @@ impl LogInclusionProof {
 }
 
 impl SignedTreeHead {
+    /// Deserialize a [`SignedTreeHead`] from CBOR at the given offset.
+    ///
+    /// Expected CBOR map layout:
+    /// - Key 1: `timestamp` (uint)
+    /// - Key 2: `tree_size` (uint)
+    /// - Key 3: `root_hash` (32-byte bstr)
+    /// - Key 4: `signature` (bstr)
+    /// - Key 5: `log_pubkey` (bstr)
+    /// - Key 6: `log_id` (bstr, optional — computed from `log_pubkey` if absent)
+    /// - Key 7: `tree_hash_algorithm` (uint, optional — defaults to 0)
     pub fn from_cbor(data: &[u8], offset: &mut usize) -> Result<Self> {
         let map_len = crate::cbor::decode_map_len(data, offset)?;
         let mut timestamp = 0u64;
@@ -148,6 +224,11 @@ impl SignedTreeHead {
         Ok(Self { timestamp, tree_size, root_hash, signature, log_pubkey, log_id, tree_hash_algorithm })
     }
 
+    /// Serialize the [`SignedTreeHead`] to CBOR.
+    ///
+    /// Produces a 7-key map with keys 1 through 7 corresponding to the
+    /// fields `timestamp`, `tree_size`, `root_hash`, `signature`,
+    /// `log_pubkey`, `log_id`, and `tree_hash_algorithm`.
     pub fn to_cbor(&self) -> Vec<u8> {
         let mut buf = Vec::new();
         crate::cbor::encode_uint_head(&mut buf, 0xa0, 7);
@@ -181,6 +262,12 @@ fn try_read_text_key(data: &[u8], offset: &mut usize) -> Option<Vec<u8>> {
     }
 }
 
+/// Extract a [`TemporalAnchor`] from the unprotected header of a COSE_Sign1
+/// envelope.
+///
+/// Looks for the text-map keys `"log_inclusion_proof"` and `"log_sth"` in
+/// the unprotected header and deserializes the corresponding CBOR-encoded
+/// values. Returns `None` if either key is missing or deserialization fails.
 pub fn extract_temporal_anchor(cose_bytes: &[u8]) -> Option<TemporalAnchor> {
     let unprotected = crate::cose::extract_unprotected(cose_bytes).ok()?;
     let mut offset = 0usize;
@@ -212,6 +299,14 @@ pub fn extract_temporal_anchor(cose_bytes: &[u8]) -> Option<TemporalAnchor> {
 }
 
 impl TemporalAnchor {
+    /// Verify that the inclusion proof matches the payload hash against the
+    /// STH root hash.
+    ///
+    /// Checks:
+    /// - `tree_size > 0`
+    /// - `leaf_index < tree_size`
+    /// - The computed Merkle root from the inclusion proof equals the STH's
+    ///   `root_hash` (via [`LogInclusionProof::verify`]).
     pub fn verify_inclusion(&self, payload_hash: &[u8; 32]) -> Result<()> {
         if self.signed_tree_head.tree_size == 0 {
             return Err(Error::InvalidLogProof("STH tree_size must be greater than 0".into()));
@@ -225,6 +320,17 @@ impl TemporalAnchor {
         Ok(())
     }
 
+    /// Verify the Ed25519 signature on the signed tree head.
+    ///
+    /// Checks:
+    /// - `log_pubkey` must be exactly 32 bytes.
+    /// - `log_id` must be exactly 32 bytes.
+    /// - `tree_hash_algorithm` must be 0 (only SHA-256 is supported).
+    /// - If a `trusted_key` is provided, the STH's `log_pubkey` must match.
+    /// - The signature over `(timestamp ‖ tree_size ‖ root_hash)` is verified
+    ///   using Ed25519.
+    ///
+    /// Returns an error if the STH is untrusted (`trusted_key` is `None`).
     pub fn verify_sth_signature(&self, trusted_key: Option<&[u8; 32]>) -> Result<()> {
         if self.signed_tree_head.log_pubkey.len() != 32 {
             return Err(Error::InvalidLogProof("STH must carry a 32-byte log public key".into()));

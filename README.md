@@ -7,7 +7,21 @@
 ![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)
 ![Rust Edition](https://img.shields.io/badge/edition-2024-blue)
 
-Axiom is a minimal, tamper-evident provenance protocol using **deterministic CBOR**, **Ed25519 + ML-DSA-65 hybrid signatures** (FIPS 204), **Certificate Transparency anchoring** (RFC 9162), and **PII shredding** — with an IETF forensic audit passed, 101 tests, and Axiom-True v1.0 verification compliance. Bindings for Rust, C, Python, Node.js, and Go.
+A **tamper-evident provenance protocol** with deterministic CBOR, post-quantum composite signatures (Ed25519 + ML-DSA-65), Certificate Transparency anchoring (RFC 9162), and PII shredding. Passed an IETF forensic audit with 101 tests and full Axiom-True v1.0 verification compliance. Bindings for Rust, C, Python, Node.js, and Go.
+
+---
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Key Concepts](#key-concepts)
+- [Architecture](#architecture)
+- [API Overview](#api-overview)
+- [Language Bindings](#language-bindings)
+- [Security](#security)
+- [Documentation](#documentation)
+- [Development](#development)
+- [License](#license)
 
 ---
 
@@ -17,57 +31,108 @@ Axiom is a minimal, tamper-evident provenance protocol using **deterministic CBO
 # Install the CLI
 cargo install --path crates/axiom-cli
 
-# Create a project
+# Initialize a project
 axiom init
 
-# Sign an artifact
+# Sign an artifact (produces hello.axm)
 echo "Hello, Axiom!" > hello.txt
 axiom sign hello.txt
 
-# Verify
+# Verify full protocol — lineage, key rotation, timestamps, revocation
 axiom verify hello.axm
 ```
 
-## Overview
+---
 
-Axiom is a protocol for **verifiable provenance** — cryptographic statements that link an artifact to a predicate (attests, authors, derived_from, etc.) in a tamper-evident DAG. Every statement is signed, optionally anchored to a Certificate Transparency log, and verifiable offline.
+## Key Concepts
 
-### Key Features
+**Statements** — The core unit of provenance: an artifact hash, a subject hash, a predicate (e.g. `attests`, `authors`, `derived_from`), and metadata, serialized as deterministic CBOR and signed.
 
-- **Deterministic CBOR** — Canonical encoding prevents malleability attacks (T5 fix)
-- **Ed25519 + ML-DSA-65 hybrid** — Post-quantum composite signatures (FIPS 204)
-- **CT anchoring** — Bind statements to public transparency logs (T1 fix)
-- **Revocation** — Log-based revocation with local cache support
-- **PII shredding** — Encrypt-then-commit for right-to-be-forgotten compliance
-- **Formal proofs** — TLA+, Coq, Lean 4, and Kani proof harnesses
-- **Full protocol verification** — Lineage, key rotation, timestamps, and revocation all checked
-- **Multiple bindings** — Rust, C FFI, Python, Node.js, Go
+**Predicates** — Typed relationships between artifacts: `attests`, `authors`, `derived_from`, `amends`, `rejects`. Each predicate has defined semantics in the protocol spec.
 
-## Crates
+**Lineage DAGs** — Statements form a directed acyclic graph where each statement can reference a parent. Lineage resolution is bounded at 1024 depth and verified iteratively to prevent recursion attacks (T2 fix).
 
-| Crate | Description |
-|-------|-------------|
-| [`axiom-core`](crates/axiom-core) | Core protocol library — payload, COSE signing, verification, CT, shredding |
-| [`axiom-cli`](crates/axiom-cli) | Command-line tool — init, sign, verify, inspect, lint, graph |
-| [`axiom-core-ffi`](crates/axiom-core-ffi) | C FFI bindings for Go and other languages |
-| [`axiom-core-python`](crates/axiom-core-python) | Python bindings (PyO3) |
-| [`axiom-core-node`](crates/axiom-core-node) | Node.js bindings (napi-rs) |
+**CT Anchors** — Every statement can be bound to a Certificate Transparency log via an `anchor_hash` in the payload. Verification checks inclusion proofs against a trusted log's Signed Tree Head (T1 fix).
+
+**Composite Signatures** — Ed25519 + ML-DSA-65 hybrid signatures (FIPS 204). Both algorithms must verify for the composite to be valid, providing post-quantum security today.
+
+**Deterministic CBOR** — Canonical CBOR encoding (deterministic maps, sorted keys, no indefinite-length) prevents signature malleability attacks. Verified by decode-then-re-encode equality (T5 fix).
+
+**PII Shredding** — Encrypt-then-commit protocol for personally identifiable information. Supports `shredding_commit` (SHA3-256 of ciphertext + IV) for right-to-be-forgotten compliance (GDPR, CCPA).
+
+**Revocation** — Log-based revocation with local JSON cache. The CLI caches `revoked` / `not_revoked` entries with checkpoint timestamps to minimize network queries during batch verification.
+
+---
+
+## Architecture
+
+Axiom is organized as a `no_std`-compatible core library with language bindings and a CLI on top.
+
+```
+axiom-core (no_std core)
+├── payload       — Deterministic CBOR payload construction
+├── cose          — COSE Sign1 envelope (RFC 9052)
+├── signing       — Ed25519 + ML-DSA-65 composite signer
+├── verification  — TrustStore trait, full protocol verification
+├── ct            — CT anchoring, log inclusion proofs, STH
+├── shred         — PII encryption + shredding commitment
+└── keyring       — Key generation, rotation, resolution
+
+axiom-cli          — CLI (init, sign, verify, inspect, lint, graph)
+axiom-core-ffi     — C FFI (Go, Zig, etc.)
+axiom-core-python  — Python bindings (PyO3)
+axiom-core-node    — Node.js bindings (napi-rs)
+```
+
+---
+
+## API Overview
+
+| Function | Description |
+|----------|-------------|
+| `sign_ed25519_and_anchor` | Sign a statement with Ed25519 + optional CT anchor binding |
+| `sign_composite_and_anchor` | Sign with Ed25519 + ML-DSA-65 composite + CT anchor binding |
+| `verify_statement_with_warnings` | Full protocol verification via `TrustStore` |
+| `encode_payload` / `decode_payload` | Serialize/deserialize deterministic CBOR payloads |
+| `encrypt_pii` / `decrypt_pii` | PII encryption/decryption with AES-256-GCM |
+| `shredding_commit` | Generate SHA3-256 commitment for encrypted PII |
+| `generate_ed25519_key` | Ed25519 key pair generation |
+| `generate_composite_keyring` | Ed25519 + ML-DSA-65 keyring generation |
+
+---
+
+## Language Bindings
+
+| Feature | Rust | C (FFI) | Python | Node.js | Go |
+|---------|------|----------|--------|---------|----|
+| Ed25519 sign/verify | Yes | Yes | Yes | Yes | Yes |
+| Composite sign/verify | Yes | Yes | Yes | Yes | Via FFI |
+| Full protocol verification | Yes | Yes | Yes | Yes | Via FFI |
+| CT anchoring | Yes | Yes | Yes | Yes | Via FFI |
+| PII encryption/decryption | Yes | Yes | Yes | Yes | Via FFI |
+| Shredding commit | Yes | Yes | Yes | Yes | Via FFI |
+| Payload encode/decode | Yes | Yes | Yes | Yes | Via FFI |
+
+---
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for our disclosure policy and [docs/security_audit.md](docs/security_audit.md) for the full IETF forensic audit report. Axiom passes [Axiom-True](https://github.com/thupa-pro/axiom-core/actions/workflows/axiom-compliance.yml) v1.0 compliance with formal proofs in TLA+, Coq, Lean 4, and Kani harnesses covering 6 key properties.
+
+---
 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — Step-by-step walkthrough
 - [Architecture](docs/architecture.md) — High-level design and data flow
 - [Protocol Specification](docs/protocol-spec.md) — CBOR payload format, COSE envelopes, CT anchoring
-- [Composite Signatures](docs/composite-signatures.md) — Ed25519 + ML-DSA-65 hybrid
+- [Composite Signatures](docs/composite-signatures.md) — Ed25519 + ML-DSA-65 hybrid signing
 - [PII Shredding](docs/shredding.md) — Encryption and commitment for right-to-be-forgotten
 - [Key Rotation](docs/key-rotation.md) — Key rotation protocol and chain resolution
 - [Security Audit](docs/security_audit.md) — Third-party security analysis
 - [Formal Proofs](FORMAL_PROOFS.md) — Map of formal verification and proof harnesses
-- [Shredding](crates/axiom-core/src/shred.rs) — PII shredding module with formal theorem (module-level docs)
 
-## Security
-
-See [SECURITY.md](SECURITY.md) for our disclosure policy and [docs/security_audit.md](docs/security_audit.md) for the full audit report.
+---
 
 ## Development
 
@@ -75,6 +140,8 @@ See [SECURITY.md](SECURITY.md) for our disclosure policy and [docs/security_audi
 - [Agent Constitution](AGENTS.md) — Hard constraints for AI coding agents
 - [Pre-commit hooks](.pre-commit-config.yaml) — Auto-enforce code quality
 - [`cargo-deny`](deny.toml) — Dependency license and advisory checking
+
+---
 
 ## License
 

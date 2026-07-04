@@ -1,3 +1,54 @@
+//! Deterministic CBOR encoding and decoding for Axiom Protocol payloads.
+//!
+//! This module implements a **strictly deterministic CBOR** subset for encoding
+//! [`AxiomPayload`] and [`RecoveryPolicy`] structures. The encoding enforces
+//! six determinism rules:
+//!
+//! 1. **Shortest-form integers** — unsigned and negative integers use the
+//!    minimum number of bytes for their value.
+//! 2. **Sorted map keys** — map entries are serialised in ascending bytewise
+//!    key order.
+//! 3. **No tags** — CBOR tags (major type 6) are rejected during decode.
+//! 4. **No floats** — floating-point values (major type 7, additional info
+//!    20–27) are rejected.
+//! 5. **No null/undefined** — simple values `null` (`0xf6`) and `undefined`
+//!    (`0xf7`) are rejected.
+//! 6. **Definite-length** — arrays, maps, byte strings, and text strings all
+//!    use definite-length encoding; indefinite-length forms are rejected.
+//!
+//! ## Payload Structure
+//!
+//! The top-level [`AxiomPayload`] is a CBOR map with the following fields:
+//!
+//! | Key | Field             | Type          | Required |
+//! |-----|-------------------|---------------|----------|
+//! | 1   | `subject`         | bstr .size 32 | yes      |
+//! | 2   | `predicate`       | uint (0–8)    | yes      |
+//! | 3   | `object`          | bstr .size 32 | no       |
+//! | 4   | `timestamp`       | uint           | no       |
+//! | 5   | `lineage`         | bstr .size 32 | no       |
+//! | 6   | `nonce`           | bstr .size 32 | no       |
+//! | 7   | `extensions`      | map            | no       |
+//! | 8   | `anchor_hash`     | bstr .size 32 | no       |
+//! | 10  | `recovery_policy` | bstr           | no       |
+//!
+//! ## Extension Values
+//!
+//! Extension map entries use the [`Value`] enum, which supports unsigned
+//! integers, byte strings, nested maps, and arrays.
+//!
+//! ## Key Functions
+//!
+//! * [`encode_payload`] — serialises an [`AxiomPayload`] to deterministic CBOR.
+//! * [`decode_payload`] — parses and validates CBOR, enforcing all determinism
+//!   rules.
+//! * [`is_strictly_deterministic`] — checks whether encoded bytes satisfy the
+//!   deterministic encoding via decode-then-re-encode.
+//!
+//! ## Reference
+//!
+//! This implementation follows the Axiom Protocol Deterministic CBOR specification
+//! (Protocol Spec §5).
 use alloc::format;
 use alloc::vec::Vec;
 use crate::error::{Error, Result};
@@ -372,6 +423,12 @@ pub(crate) fn decode_map_len(data: &[u8], offset: &mut usize) -> Result<u64> {
     Ok(len)
 }
 
+/// Serialise an [`AxiomPayload`] to deterministic CBOR.
+///
+/// Produces a byte sequence that satisfies all six determinism rules
+/// (shortest-form ints, sorted map keys, no tags, no floats, no null,
+/// definite-length). The output is guaranteed to be identical for identical
+/// payloads.
 pub fn encode_payload(payload: &AxiomPayload) -> Vec<u8> {
     let mut entries = Vec::new();
 
@@ -434,6 +491,19 @@ fn encode_value(buf: &mut Vec<u8>, val: &Value) {
     }
 }
 
+/// Parse and validate a deterministic CBOR payload.
+///
+/// Enforces all six determinism rules plus field-level validation:
+/// * `subject`, `object`, `lineage`, `nonce`, `anchor_hash` must each be
+///   exactly 32 bytes.
+/// * `predicate` must be in range 0–8.
+/// * Map keys must appear in ascending bytewise order (no duplicates).
+/// * Trailing data after the top-level map is rejected.
+/// * The whole payload must not be wrapped in a CBOR tag.
+///
+/// Returns [`Error::Payload`] on field validation failure,
+/// [`Error::NonCanonicalEncoding`] on ordering violations, and
+/// [`Error::Decode`] on malformed CBOR structure.
 pub fn decode_payload(data: &[u8]) -> Result<AxiomPayload> {
     let mut offset = 0;
     let map_len = decode_map_len(data, &mut offset)? as usize;
@@ -739,6 +809,11 @@ pub(crate) fn skip_value(data: &[u8], offset: &mut usize) -> Result<()> {
     Ok(())
 }
 
+/// Check whether encoded bytes satisfy the deterministic CBOR subset.
+///
+/// Decodes the byte slice and re-encodes the result. If the re-encoded
+/// output is byte-identical to the input, the data is strictly
+/// deterministic. Returns `false` on any parse error or mismatch.
 pub fn is_strictly_deterministic(data: &[u8]) -> bool {
     if let Ok(payload) = decode_payload(data) {
         let re_encoded = payload.encode();
@@ -748,24 +823,49 @@ pub fn is_strictly_deterministic(data: &[u8]) -> bool {
     }
 }
 
+/// A CBOR value used in extension map entries.
+///
+/// Only four CBOR major types are permitted in extensions: unsigned
+/// integers, byte strings, maps, and arrays. Floats, tags, null,
+/// undefined, and negative integers are rejected.
+///
+/// Maps nested inside a `Value` are recursively sorted by key during
+/// encoding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// An unsigned integer (`uint`).
     Uint(u64),
+    /// A byte string (`bstr`).
     Bstr(Vec<u8>),
+    /// A nested map (`map`). Keys are sorted bytewise during encoding.
     Map(Vec<(u64, Value)>),
+    /// An array (`array`). Only valid in extension values.
     Array(Vec<Value>),
 }
 
+/// The top-level axiom statement payload.
+///
+/// Encoded as a deterministic CBOR map. Every statement has exactly one
+/// `subject` and one `predicate`; all other fields are optional.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AxiomPayload {
+    /// Subject identifier (32-byte BLAKE3 hash of a public key or artifact).
     pub subject: [u8; 32],
+    /// Statement predicate (e.g. `Attests`, `Authors`, `DerivedFrom`, etc.).
     pub predicate: crate::predicate::Predicate,
+    /// Optional object identifier (32-byte hash, required for binary predicates).
     pub object: Option<[u8; 32]>,
+    /// Optional Unix timestamp (seconds since epoch).
     pub timestamp: Option<u64>,
+    /// Optional lineage commitment (32-byte hash of the parent statement).
     pub lineage: Option<[u8; 32]>,
+    /// Optional nonce for replay protection (32 bytes).
     pub nonce: Option<[u8; 32]>,
+    /// Optional Certificate Transparency anchor hash (32 bytes).
     pub anchor_hash: Option<[u8; 32]>,
+    /// Optional extension map for application-specific metadata.
     pub extensions: Option<Vec<(u64, Value)>>,
+    /// Optional encoded [`RecoveryPolicy`] byte string for the RECOVERS predicate.
     pub recovery_policy: Option<Vec<u8>>,
 }
 
@@ -781,12 +881,18 @@ pub struct AxiomPayload {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecoveryPolicy {
+    /// List of guardian key hashes (each is a 32-byte BLAKE3 hash of a guardian's public key).
     pub guardians: Vec<[u8; 32]>,
+    /// Number of guardian approvals required to recover a key.
     pub threshold: u64,
+    /// Optional delay in seconds before recovery can be executed.
     pub recovery_delay: Option<u64>,
 }
 
 impl RecoveryPolicy {
+    /// Encode this recovery policy as a deterministic CBOR map.
+    ///
+    /// Map keys are sorted bytewise. Returns the canonical encoded form.
     pub fn encode(&self) -> Vec<u8> {
         let mut entries = Vec::new();
         let guardian_bstrs: Vec<_> = self.guardians.iter().map(|g| Value::Bstr(g.to_vec())).collect();
@@ -805,6 +911,10 @@ impl RecoveryPolicy {
         buf
     }
 
+    /// Decode a recovery policy from deterministic CBOR.
+    ///
+    /// Validates that all guardian hashes are exactly 32 bytes and that
+    /// required keys (guardians, threshold) are present.
     pub fn decode(data: &[u8]) -> Result<Self> {
         let mut offset = 0;
         let map_len = decode_map_len(data, &mut offset)? as usize;
@@ -846,6 +956,22 @@ impl RecoveryPolicy {
 }
 
 impl AxiomPayload {
+    /// Create a new [`AxiomPayload`] with the minimum required fields.
+    ///
+    /// Optional fields (`object`, `timestamp`, `lineage`, `nonce`, `anchor_hash`,
+    /// `extensions`, `recovery_policy`) are initialised to `None` and can be set
+    /// via struct update syntax.
+    ///
+    /// ```
+    /// use axiom_core::predicate::Predicate;
+    /// use axiom_core::cbor::AxiomPayload;
+    ///
+    /// let subject = [0xabu8; 32];
+    /// let payload = AxiomPayload::new(subject, Predicate::Attests);
+    /// let encoded = payload.encode();
+    /// let decoded = AxiomPayload::decode(&encoded).unwrap();
+    /// assert_eq!(decoded, payload);
+    /// ```
     pub fn new(subject: [u8; 32], predicate: crate::predicate::Predicate) -> Self {
         Self {
             subject,
@@ -860,10 +986,12 @@ impl AxiomPayload {
         }
     }
 
+    /// Encode this payload as deterministic CBOR. Delegates to [`encode_payload`].
     pub fn encode(&self) -> Vec<u8> {
         encode_payload(self)
     }
 
+    /// Decode a payload from deterministic CBOR. Delegates to [`decode_payload`].
     pub fn decode(data: &[u8]) -> Result<Self> {
         decode_payload(data)
     }

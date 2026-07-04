@@ -1,6 +1,15 @@
 //! # Axiom Cryptographic Shredding
 //!
-//! ## Shredding Theorem (Formal)
+//! Implements cryptographic shredding (secure deletion) of PII using
+//! **XChaCha20-Poly1305** AEAD encryption with ephemeral key destruction.
+//!
+//! ## Algorithms
+//!
+//! - **Symmetric encryption**: XChaCha20-Poly1305 (256-bit key, 192-bit nonce).
+//! - **Key wrapping**: HPKE (RFC 9180) with X25519 + HKDF-SHA384 + AES-256-GCM.
+//! - **Key zeroization**: `zeroize` crate — memory is zeroed on drop.
+//!
+//! ## Shredding Theorem
 //!
 //! Let `Π = (KeyGen, Encrypt, Decrypt)` be a symmetric-key AEAD scheme that is
 //! indistinguishable under chosen-plaintext attack (IND-CPA). Let `λ` be the security
@@ -11,9 +20,12 @@
 //! published on the Axiom Graph, then for any probabilistic polynomial-time (PPT)
 //! adversary `A`:
 //!
-//!     Pr[ A(C) = M ] ≤ negl(λ)
+//! ```text
+//! Pr[ A(C) = M ] <= negl(lambda)
+//! ```
 //!
-//! where `negl(λ) = 2⁻ˡ + ε(λ)` and `ε(λ)` is the IND-CPA advantage against XChaCha20-Poly1305.
+//! where `negl(λ) = 2^-l + epsilon(λ)` and `epsilon(λ)` is the IND-CPA advantage
+//! against XChaCha20-Poly1305.
 //!
 //! **Proof sketch**:
 //! 1. XChaCha20-Poly1305 is IND-CPA secure under the standard model (Theorem 3 of
@@ -23,7 +35,22 @@
 //!    `{0,1}^{|C|}` with entropy `H∞(C | K destroyed) = 0` (no key, no information).
 //! 4. Without `K`, `C` is computationally indistinguishable from random bytes of
 //!    length `|C|`: `C ≈_c U_{|C|}` where `U_n` is the uniform distribution over `{0,1}ⁿ`.
-//! 5. Therefore, `Pr[A(C) = M] ≤ 2⁻ˡ + ε_IND-CPA(λ)`.
+//! 5. Therefore, `Pr[A(C) = M] <= 2^-l + epsilon_IND-CPA(lambda)`. (non-ascii chars omitted for doc compat)
+//!
+//! ## Erasure Protocol
+//!
+//! The erasure protocol (right to be forgotten) works as follows:
+//!
+//! 1. **Locate**: Find all graph statements referencing `hash(ciphertext)`.
+//! 2. **Verify**: Confirm signatures and DAG lineage.
+//! 3. **Destroy**: Zeroize the `ShreddingKey` (memory overwritten on drop).
+//! 4. **Notify** (optional): Issue a `REVOKES` statement recording the erasure.
+//! 5. **Prove**: After key destruction, ciphertext is computationally indistinguishable from random.
+//!
+//! ## Consent Receipts
+//!
+//! [`create_consent_payload`] builds a `COMPLIES_WITH` payload recording user
+//! consent under GDPR Article 7, with no PII in the graph — only hashes and DIDs.
 //!
 //! ## GDPR Compliance Map
 //!
@@ -57,10 +84,12 @@ const NONCE_SIZE: usize = 24;
 #[derive(Debug, Clone, Zeroize)]
 #[zeroize(drop)]
 pub struct ShreddingKey {
+    /// The 256-bit symmetric shredding key used for AEAD encryption.
     pub key: [u8; KEY_SIZE],
 }
 
 impl ShreddingKey {
+    /// Generate a fresh random 256-bit shredding key from `OsRng`.
     pub fn generate() -> Self {
         let mut key = [0u8; KEY_SIZE];
         use rand_core::RngCore;
@@ -68,6 +97,9 @@ impl ShreddingKey {
         Self { key }
     }
 
+    /// Create a [`ShreddingKey`] from an exact 32-byte slice.
+    ///
+    /// Returns `Err(Error::Crypto)` if `bytes` is not exactly 32 bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != KEY_SIZE {
             return Err(Error::Crypto(format!(
@@ -80,6 +112,7 @@ impl ShreddingKey {
         Ok(Self { key })
     }
 
+    /// Return a reference to the raw 32-byte key material.
     pub fn to_bytes(&self) -> &[u8; KEY_SIZE] {
         &self.key
     }
@@ -91,6 +124,10 @@ impl ShreddingKey {
     }
 }
 
+/// Encrypt plaintext with XChaCha20-Poly1305 under the given shredding key.
+///
+/// Returns `nonce (24 bytes) || ciphertext || tag` — the nonce is randomly
+/// generated per call, ensuring semantic security.
 pub fn encrypt_pii(key: &ShreddingKey, plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new_from_slice(&key.key)
         .map_err(|e| Error::Crypto(format!("XChaCha20Poly1305 init: {e}")))?;
@@ -110,6 +147,11 @@ pub fn encrypt_pii(key: &ShreddingKey, plaintext: &[u8]) -> Result<Vec<u8>> {
     Ok(result)
 }
 
+/// Decrypt data previously encrypted with [`encrypt_pii`].
+///
+/// Expects `encrypted` to be `24-byte nonce || ciphertext || tag`.
+/// Returns `Err(Error::Crypto)` if the data is too short, the key is wrong,
+/// or the AEAD tag verification fails.
 pub fn decrypt_pii(key: &ShreddingKey, encrypted: &[u8]) -> Result<Vec<u8>> {
     if encrypted.len() < NONCE_SIZE {
         return Err(Error::Crypto("encrypted data too short".into()));
@@ -126,10 +168,19 @@ pub fn decrypt_pii(key: &ShreddingKey, encrypted: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| Error::Crypto("XChaCha20Poly1305 decrypt failed".into()))
 }
 
+/// Compute the BLAKE3 hash of an encrypted blob.
+///
+/// This is the content-address stored in the Axiom graph — the graph never
+/// stores plaintext, only `hash(ciphertext)`.
 pub fn hash_ciphertext(encrypted: &[u8]) -> [u8; 32] {
     hash::blake3(encrypted)
 }
 
+/// Encrypt data and return both the ciphertext and its BLAKE3 commitment.
+///
+/// This is a convenience combining [`encrypt_pii`] and [`hash_ciphertext`]
+/// into a single operation. The commitment is suitable for publishing on the
+/// Axiom graph as an immutable reference to the encrypted data.
 pub fn shredding_commit(key: &ShreddingKey, plaintext: &[u8]) -> Result<(Vec<u8>, [u8; 32])> {
     let ciphertext = encrypt_pii(key, plaintext)?;
     let commitment = hash_ciphertext(&ciphertext);
@@ -216,9 +267,13 @@ pub fn hpke_decrypt_key(
 /// Axiom Graph — it represents the action taken by the data controller.
 #[derive(Debug, Clone)]
 pub struct ErasureRecord {
+    /// The key identifier of the destroyed shredding key.
     pub key_id: [u8; 32],
+    /// BLAKE3 hash of the ciphertext that was rendered unrecoverable.
     pub ciphertext_commitment: [u8; 32],
+    /// Unix timestamp (seconds since epoch) when the erasure was performed.
     pub timestamp: u64,
+    /// Optional hash of the revocation statement, if one was published.
     pub revocation_statement_hash: Option<[u8; 32]>,
 }
 

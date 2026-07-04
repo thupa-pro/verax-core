@@ -1,3 +1,45 @@
+//! # Statement Verification Pipeline
+//!
+//! This module implements the full Axiom statement verification pipeline:
+//!
+//! 1. **Decode** — Parse raw COSE_Sign1 bytes into a [`Statement`].
+//! 2. **CBOR Determinism** — Verify the payload uses canonical CBOR encoding
+//!    (rejects non-canonical encodings, preventing malleability attacks).
+//! 3. **COSE Parse** — Extract and validate protected header (algorithm ID,
+//!    KID) and unprotected header.
+//! 4. **Signature Verify** — Verify the cryptographic signature against the
+//!    resolved public key (Ed25519, ML-DSA-65, or composite).
+//! 5. **Lineage Walk** — Iteratively traverse the statement's lineage chain
+//!    (bounded by `MAX_LINEAGE_DEPTH` = 1024), verifying hash integrity,
+//!    timestamp monotonicity, and Appends subject consistency.
+//! 6. **Key Rotation** — Follow SUPERSEDES chains (bounded by
+//!    `MAX_ROTATION_DEPTH` = 100) to resolve the terminal signing key.
+//! 7. **Revocation Check** — Verify the statement has not been revoked via
+//!    the [`TrustStore`]'s `is_revoked_in_log`.
+//! 8. **CT Anchor Verify** — If a Certificate Transparency anchor is present,
+//!    verify the inclusion proof against the Signed Tree Head (STH), check
+//!    STH timestamp freshness (90-day `MAX_STH_STALE_DELTA` threshold),
+//!    and validate the STH signature against the trusted log key.
+//! 9. **Warnings** — Non-fatal issues (e.g. missing temporal evidence,
+//!    unknown revocation status, stale STH) are accumulated in
+//!    [`VerificationWarnings`].
+//!
+//! ## TrustStore Trait
+//!
+//! The [`TrustStore`] trait abstracts key resolution, statement fetching, and
+//! revocation status. This allows the verifier to operate against different
+//! backing stores (local cache, remote node, HSM, etc.) without modifying
+//! the verification logic.
+//!
+//! ## Warning Types
+//!
+//! - [`Warning::TemporalEvidenceMissing`] — No CT anchor was attached.
+//! - [`Warning::RevocationStatusUnknown`] — The log's revocation status
+//!   could not be determined (offline / no cache).
+//! - [`Warning::StaleSth`] — The STH timestamp is more than 90 days after
+//!   the statement timestamp; the proof is still valid, but the STH may be
+//!   unusually far in the future.
+
 use alloc::format;
 use alloc::vec::Vec;
 use crate::cbor::{AxiomPayload, is_strictly_deterministic};
@@ -13,30 +55,57 @@ use crate::statement::Statement;
 /// is forever valid, but the warning alerts callers that the STH is unusually
 /// far in the future relative to the statement.
 const MAX_STH_STALE_DELTA: u64 = 3600 * 24 * 90; // 90 days
+
+/// Maximum depth of the lineage chain traversal (prevents unbounded iteration).
+/// Replaces recursion-based approaches (T2 fix).
 const MAX_LINEAGE_DEPTH: usize = 1024;
+
+/// Maximum depth of the key rotation chain traversal.
+/// Prevents infinite loops in SUPERSEDES chain resolution.
 const MAX_ROTATION_DEPTH: usize = 100;
 
+/// Warnings that do not cause verification failure but should be surfaced to the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Warning {
+    /// No CT temporal anchor was found in the unprotected header.
     TemporalEvidenceMissing,
+    /// The log's revocation status could not be determined (offline / no cache).
     RevocationStatusUnknown,
-    StaleSth { sth_timestamp: u64, statement_timestamp: u64, delta: u64 },
+    /// The STH timestamp is unusually far in the future relative to the statement.
+    StaleSth {
+        /// Timestamp from the Signed Tree Head.
+        sth_timestamp: u64,
+        /// Timestamp embedded in the statement's payload.
+        statement_timestamp: u64,
+        /// Difference in seconds between the two timestamps.
+        delta: u64,
+    },
 }
 
+/// Non-fatal warnings emitted during verification.
+///
+/// Accumulated by the verifier and returned alongside the verified [`Statement`]
+/// from [`verify_statement_with_warnings`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerificationWarnings {
+    /// Non-fatal warnings collected during verification.
     pub warnings: Vec<Warning>,
 }
 
 impl VerificationWarnings {
+    /// Create an empty warnings collection.
     pub fn new() -> Self {
         Self { warnings: Vec::new() }
     }
 
+    /// Append a warning to the collection.
     pub fn push(&mut self, w: Warning) {
         self.warnings.push(w);
     }
 
+    /// Returns `true` if temporal evidence (CT anchor) was present.
+    ///
+    /// Equivalent to `!self.warnings.contains(&Warning::TemporalEvidenceMissing)`.
     pub fn has_temporal_evidence(&self) -> bool {
         !self.warnings.contains(&Warning::TemporalEvidenceMissing)
     }
@@ -48,16 +117,29 @@ impl Default for VerificationWarnings {
     }
 }
 
+/// Abstract key and statement resolution for the verifier.
+///
+/// Implementations provide:
+/// - Public key lookup by KID (Ed25519, composite, ML-DSA-65)
+/// - Statement fetching by hash (for lineage traversal)
+/// - Revocation status query
+/// - Log public key resolution (for CT anchor verification)
+/// - Key rotation chain resolution
 pub trait TrustStore {
+    /// Resolve an Ed25519 [`VerifyingKey`](ed25519_dalek::VerifyingKey) from its
+    /// 32-byte KID. Returns `None` if the KID is unknown.
     fn resolve_key(&self, kid: &[u8]) -> Option<ed25519_dalek::VerifyingKey>;
 
+    /// Resolve a composite (Ed25519 + ML-DSA-65) public key from its KID.
     fn resolve_composite_key(&self, kid: &[u8]) -> Option<cose::CompositePublicKey>;
 
+    /// Resolve an ML-DSA-65 verifying key from its 1952-byte KID.
     fn resolve_mldsa65_key(&self, kid: &[u8]) -> Option<ml_dsa::VerifyingKey<ml_dsa::MlDsa65>> {
         let _ = kid;
         None
     }
 
+    /// Fetch a statement's COSE bytes by its BLAKE3 content hash.
     fn fetch_statement(&self, hash: &[u8; 32]) -> Option<Vec<u8>>;
 
     /// Returns the revocation status of a statement in the log.
@@ -66,6 +148,9 @@ pub trait TrustStore {
     /// - `None` — status unknown (offline, no cache, or log not monitored)
     fn is_revoked_in_log(&self, stmt_hash: &[u8; 32], after_timestamp: u64) -> Option<bool>;
 
+    /// Resolve a log's trusted public key given its log ID and candidate key.
+    ///
+    /// Returns `Some(trusted_key)` if the candidate is accepted, `None` otherwise.
     fn resolve_log_pubkey(&self, log_id: &[u8; 32], candidate_key: &[u8; 32]) -> Option<[u8; 32]> {
         let _ = (log_id, candidate_key);
         None
@@ -114,10 +199,30 @@ pub fn resolve_rotated_key_default(
     None
 }
 
+/// Full statement verification, discarding warnings.
+///
+/// Calls [`verify_statement_with_warnings`] and returns only the verified
+/// [`Statement`], dropping any non-fatal warnings.
 pub fn verify_statement(cose_bytes: &[u8], trust_anchors: &dyn TrustStore) -> Result<Statement> {
     verify_statement_with_warnings(cose_bytes, trust_anchors).map(|(s, _)| s)
 }
 
+/// Full statement verification returning both the statement and warnings.
+///
+/// This is the main entry point for the verification pipeline. It performs:
+///
+/// 1. COSE envelope parsing and CBOR determinism check
+/// 2. Protected header validation (algorithm-KID binding, canonical ordering)
+/// 3. Signature verification via the [`TrustStore`] (supporting key rotation)
+/// 4. Iterative lineage walk (bounded by `MAX_LINEAGE_DEPTH`)
+/// 5. Object-field validation for relationship predicates
+/// 6. Revocation assertion checks (REVOKES predicate semantics)
+/// 7. Recovery policy verification (RECOVERS predicate)
+/// 8. CT anchor verification (inclusion proof, STH signature, timestamp)
+/// 9. Revocation status check from the log
+///
+/// Returns `(Statement, VerificationWarnings)` on success, or an [`Error`] on
+/// any verification failure.
 pub fn verify_statement_with_warnings(
     cose_bytes: &[u8],
     trust_anchors: &dyn TrustStore,
@@ -357,6 +462,15 @@ fn verify_temporal_anchor(
     Ok(())
 }
 
+/// Verify an Ed25519-signed statement given an explicit public key.
+///
+/// This is a lightweight verification path that bypasses the [`TrustStore`]:
+/// the caller supplies the expected public key directly. The function still
+/// validates CBOR determinism, the protected header (algorithm-KID binding,
+/// canonical ordering), and the Ed25519 signature.
+///
+/// No lineage traversal, revocation checks, or CT anchor verification is
+/// performed. For full verification, use [`verify_statement`].
 pub fn verify_statement_ed25519(
     cose_bytes: &[u8],
     pubkey: &ed25519_dalek::VerifyingKey,

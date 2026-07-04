@@ -1,3 +1,14 @@
+//! Python bindings for the Axiom Protocol.
+//!
+//! This module exposes the core Axiom functionality to Python:
+//! - Statement signing (Ed25519, Composite Ed25519+ML-DSA-65)
+//! - Signature verification (Ed25519, Composite, and full protocol)
+//! - PII shredding (encrypt, decrypt, shredding_commit)
+//! - Payload encoding and decoding
+//!
+//! Error conditions are signaled via `ValueError` exceptions with
+//! descriptive messages and numeric error codes matching the Axiom spec.
+
 use std::collections::{HashMap, HashSet};
 use pyo3::prelude::*;
 
@@ -115,6 +126,8 @@ fn payload_to_dict(py: Python, payload: &AxiomPayload) -> PyResult<PyObject> {
     Ok(d.into())
 }
 
+/// A decoded Axiom payload with fields for subject, predicate, object,
+/// timestamp, lineage, and nonce.
 #[pyclass]
 #[derive(Clone)]
 struct Payload {
@@ -139,11 +152,22 @@ impl Payload {
     }
 }
 
+/// Returns the Axiom library version string.
 #[pyfunction]
 fn axiom_version() -> String {
     concat!("axiom-core ", env!("CARGO_PKG_VERSION")).to_string()
 }
 
+/// Verifies an Ed25519-signed COSE statement.
+///
+/// Args:
+///     cose: The COSE-encoded statement bytes.
+///     pubkey: The 32-byte Ed25519 public key.
+///
+/// Returns:
+///     The decoded payload CBOR bytes.
+///
+/// Raises ValueError on invalid signature or malformed input.
 #[pyfunction]
 fn verify_ed25519(cose: &[u8], pubkey: &[u8]) -> PyResult<Vec<u8>> {
     let arr: [u8; 32] = pubkey.try_into().map_err(|_| {
@@ -154,6 +178,17 @@ fn verify_ed25519(cose: &[u8], pubkey: &[u8]) -> PyResult<Vec<u8>> {
     cose::parse_and_verify_ed25519(cose, &pk).map_err(py_err)
 }
 
+/// Verifies a Composite (Ed25519 + ML-DSA-65) COSE statement.
+///
+/// Args:
+///     cose: The COSE-encoded statement bytes.
+///     ed_pubkey: The 32-byte Ed25519 public key.
+///     ml_dsa_pubkey: The 1952-byte ML-DSA-65 public key.
+///
+/// Returns:
+///     The decoded payload CBOR bytes.
+///
+/// Raises ValueError on invalid signature or malformed input.
 #[pyfunction]
 fn verify_composite(cose: &[u8], ed_pubkey: &[u8], ml_dsa_pubkey: &[u8]) -> PyResult<Vec<u8>> {
     let ed_arr: [u8; 32] = ed_pubkey.try_into().map_err(|_| {
@@ -167,6 +202,22 @@ fn verify_composite(cose: &[u8], ed_pubkey: &[u8], ml_dsa_pubkey: &[u8]) -> PyRe
         .map_err(py_err)
 }
 
+/// Performs full protocol verification including signature, CT log anchoring,
+/// chain resolution, and revocation status.
+///
+/// Args:
+///     cose: The COSE-encoded statement bytes.
+///     pubkey: The 32-byte Ed25519 public key.
+///     chain_statements: Optional list of parent statement bytes for chain resolution.
+///     trusted_log_key: Optional 32-byte trusted CT log public key.
+///     revoked: Optional list of hex-encoded revoked statement hashes.
+///     not_revoked: Optional list of hex-encoded non-revoked statement hashes.
+///     checkpoint_timestamp: Optional checkpoint timestamp for revocation queries.
+///
+/// Returns:
+///     A dict with keys: ``valid`` (bool), ``payload`` (dict or absent),
+///     ``warnings`` (list of str), ``error`` (str or absent),
+///     ``error_code`` (int or absent).
 #[pyfunction]
 #[pyo3(signature = (cose, pubkey, chain_statements=None, trusted_log_key=None, revoked=None, not_revoked=None, checkpoint_timestamp=None))]
 #[allow(clippy::too_many_arguments)]
@@ -253,6 +304,16 @@ fn verify_full(
     Ok(d.into())
 }
 
+/// Decodes a CBOR-encoded Axiom payload into a Payload object.
+///
+/// Args:
+///     cbor: The CBOR-encoded payload bytes.
+///
+/// Returns:
+///     A Payload object with subject, predicate, object, timestamp,
+///     lineage, and nonce fields.
+///
+/// Raises ValueError on malformed CBOR.
 #[pyfunction]
 fn decode_payload(cbor: &[u8]) -> PyResult<Payload> {
     let p = AxiomPayload::decode(cbor).map_err(py_err)?;
@@ -266,6 +327,18 @@ fn decode_payload(cbor: &[u8]) -> PyResult<Payload> {
     })
 }
 
+/// Creates a CBOR-encoded Axiom payload from a subject hash and predicate name.
+///
+/// Args:
+///     subject: A 32-byte subject hash.
+///     predicate: The predicate name string (e.g. "ATTESTS", "AUTHORS",
+///         "DERIVED_FROM", "SUPERSEDES", "REVOKES", "ENDORSES", "APPENDS",
+///         "COMPLIES_WITH", "RECOVERS").
+///
+/// Returns:
+///     The CBOR-encoded payload bytes.
+///
+/// Raises ValueError on invalid subject length or unknown predicate.
 #[pyfunction]
 fn encode_payload(subject: &[u8], predicate: &str) -> PyResult<Vec<u8>> {
     if subject.len() != 32 {
@@ -283,6 +356,16 @@ fn encode_payload(subject: &[u8], predicate: &str) -> PyResult<Vec<u8>> {
     Ok(payload.encode())
 }
 
+/// Signs a payload CBOR with an Ed25519 signing key.
+///
+/// Args:
+///     payload_cbor: The CBOR-encoded payload bytes.
+///     key_bytes: The 32-byte Ed25519 signing key (seed).
+///
+/// Returns:
+///     The COSE-encoded statement bytes.
+///
+/// Raises ValueError on invalid key length or payload decode failure.
 #[pyfunction]
 fn sign_ed25519(payload_cbor: &[u8], key_bytes: &[u8]) -> PyResult<Vec<u8>> {
     let arr: [u8; 32] = key_bytes.try_into().map_err(|_| {
@@ -294,6 +377,17 @@ fn sign_ed25519(payload_cbor: &[u8], key_bytes: &[u8]) -> PyResult<Vec<u8>> {
     Ok(stmt.to_bytes().to_vec())
 }
 
+/// Signs a payload CBOR with a Composite (Ed25519 + ML-DSA-65) key pair.
+///
+/// Args:
+///     payload_cbor: The CBOR-encoded payload bytes.
+///     ed_key_bytes: The 32-byte Ed25519 signing key (seed).
+///     ml_seed_bytes: The 32-byte ML-DSA-65 seed.
+///
+/// Returns:
+///     The COSE-encoded statement bytes.
+///
+/// Raises ValueError on invalid key length or payload decode failure.
 #[pyfunction]
 fn sign_composite(payload_cbor: &[u8], ed_key_bytes: &[u8], ml_seed_bytes: &[u8]) -> PyResult<Vec<u8>> {
     let ed_arr: [u8; 32] = ed_key_bytes.try_into().map_err(|_| {
@@ -310,18 +404,49 @@ fn sign_composite(payload_cbor: &[u8], ed_key_bytes: &[u8], ml_seed_bytes: &[u8]
     Ok(stmt.to_bytes().to_vec())
 }
 
+/// Encrypts plaintext using a ShreddingKey for PII protection.
+///
+/// Args:
+///     key_bytes: The 32-byte shredding key.
+///     plaintext: The plaintext bytes to encrypt.
+///
+/// Returns:
+///     The ciphertext bytes.
+///
+/// Raises ValueError on invalid key length.
 #[pyfunction]
 fn encrypt(key_bytes: &[u8], plaintext: &[u8]) -> PyResult<Vec<u8>> {
     let key = ShreddingKey::from_bytes(key_bytes).map_err(py_err)?;
     encrypt_pii(&key, plaintext).map_err(py_err)
 }
 
+/// Decrypts ciphertext using a ShreddingKey.
+///
+/// Args:
+///     key_bytes: The 32-byte shredding key.
+///     ciphertext: The ciphertext bytes to decrypt.
+///
+/// Returns:
+///     The plaintext bytes.
+///
+/// Raises ValueError on invalid key length or decryption failure.
 #[pyfunction]
 fn decrypt(key_bytes: &[u8], ciphertext: &[u8]) -> PyResult<Vec<u8>> {
     let key = ShreddingKey::from_bytes(key_bytes).map_err(py_err)?;
     decrypt_pii(&key, ciphertext).map_err(py_err)
 }
 
+/// Performs encrypt-and-commit in one operation for PII shredding.
+///
+/// Args:
+///     key_bytes: The 32-byte shredding key.
+///     plaintext: The plaintext bytes to process.
+///
+/// Returns:
+///     A tuple ``(ciphertext, commitment)`` where commitment is the
+///     blinding commitment bytes.
+///
+/// Raises ValueError on invalid key length.
 #[pyfunction]
 fn shredding_commit_fn(key_bytes: &[u8], plaintext: &[u8]) -> PyResult<(Vec<u8>, Vec<u8>)> {
     let key = ShreddingKey::from_bytes(key_bytes).map_err(py_err)?;

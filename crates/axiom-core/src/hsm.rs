@@ -1,3 +1,18 @@
+//! # HSM Abstraction Layer
+//!
+//! Provides a hardware security module (HSM) abstraction for key custody in the
+//! Axiom protocol. The [`SecureKeyStore`] trait defines the interface; private
+//! key material never leaves the trait implementation — protocol logic interacts
+//! only through opaque [`KeyReference`] handles.
+//!
+//! ## Implementations
+//!
+//! - **`software`** (feature `software-hsm`): In-memory key store for testing.
+//!   WARNING: private keys are resident in host memory; not for production.
+//! - **`pkcs11`** (feature `pkcs11-hsm`): PKCS#11-backed store (placeholder).
+//! - **`tpm`** (feature `tpm-hsm`): TPM-backed store (placeholder).
+//! - [`NullKeyStore`]: No-op store that returns errors on all operations.
+
 use alloc::vec::Vec;
 
 use zeroize::Zeroize;
@@ -7,12 +22,20 @@ use crate::error::{Error, Result};
 /// Algorithm tag for the COSE protected header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Algorithm {
+    /// Ed25519 (algorithm ID -8).
     Ed25519,
+    /// ML-DSA-65 (algorithm ID -38).
     MlDsa65,
+    /// Composite Ed25519 + ML-DSA-65 (algorithm ID -39).
     Composite,
 }
 
 impl Algorithm {
+    /// Return the COSE algorithm ID for this algorithm.
+    ///
+    /// - Ed25519 → -8
+    /// - ML-DSA-65 → -38
+    /// - Composite → -39
     pub fn cose_alg_id(&self) -> i64 {
         match self {
             Algorithm::Ed25519 => -8,
@@ -21,6 +44,9 @@ impl Algorithm {
         }
     }
 
+    /// Parse an algorithm from a COSE algorithm ID.
+    ///
+    /// Returns `None` for unrecognised IDs.
     pub fn from_cose_alg_id(id: i64) -> Option<Self> {
         match id {
             -8 => Some(Algorithm::Ed25519),
@@ -34,8 +60,11 @@ impl Algorithm {
 /// Attributes describing a key stored in a secure enclave.
 #[derive(Debug, Clone)]
 pub struct KeyAttributes {
+    /// Cryptographic algorithm this key is used with.
     pub algorithm: Algorithm,
+    /// Whether the key material may be exported from the secure enclave.
     pub exportable: bool,
+    /// Whether the key material may be extracted in plaintext form.
     pub extractable: bool,
 }
 
@@ -52,25 +81,31 @@ impl Default for KeyAttributes {
 /// Opaque reference to a key inside a secure keystore.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyReference {
+    /// Key identifier — a 32-byte unique handle for the key in the keystore.
     pub kid: [u8; 32],
+    /// Cryptographic algorithm this reference is associated with.
     pub algorithm: Algorithm,
 }
 
 impl Zeroize for KeyReference {
+    /// Zeroize the KID bytes on explicit request.
     fn zeroize(&mut self) {
         self.kid.zeroize();
     }
 }
 
 impl KeyReference {
+    /// Create an Ed25519 key reference from a 32-byte KID.
     pub fn new_ed25519(kid: [u8; 32]) -> Self {
         Self { kid, algorithm: Algorithm::Ed25519 }
     }
 
+    /// Create an ML-DSA-65 key reference from a 32-byte KID.
     pub fn new_mldsa65(kid: [u8; 32]) -> Self {
         Self { kid, algorithm: Algorithm::MlDsa65 }
     }
 
+    /// Create a composite key reference from a 32-byte KID.
     pub fn new_composite(kid: [u8; 32]) -> Self {
         Self { kid, algorithm: Algorithm::Composite }
     }
@@ -160,6 +195,7 @@ pub mod software {
     }
 
     impl SoftwareKeyStore {
+        /// Create an empty software key store.
         pub fn new() -> Self {
             Self { keys: BTreeMap::new() }
         }
@@ -342,7 +378,9 @@ pub mod tpm {
     }
 }
 
-/// Null/Noop key store for use when no HSM is available.
+/// Null/no-op key store for use when no HSM is available.
+///
+/// All operations return `Err(Error::Crypto("no secure keystore available".into()))`.
 pub struct NullKeyStore;
 
 impl SecureKeyStore for NullKeyStore {
