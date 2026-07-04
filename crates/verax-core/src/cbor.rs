@@ -57,6 +57,28 @@ const MAJOR_UINT: u8 = 0x00;
 const MAJOR_BSTR: u8 = 0x40;
 const MAJOR_MAP: u8 = 0xa0;
 
+/// Maximum nesting depth for CBOR containers (maps, arrays, tags).
+/// Exceeding this depth during decoding returns a `Decode` error instead of
+/// risking stack overflow from deeply nested input.
+const MAX_CBOR_DEPTH: u32 = 64;
+
+/// Maximum number of entries in a decoded map.
+/// Prevents memory-exhaustion / capacity-overflow attacks.
+const MAX_MAP_ENTRIES: usize = 512;
+
+/// Maximum byte-string length accepted by the decoder.
+/// Prevents memory-exhaustion attacks.
+const MAX_BSTR_LENGTH: usize = 1_048_576; // 1 MiB
+
+/// Convert a `u64` length to `usize`, rejecting values that would overflow
+/// or exceed the protocol limit.
+fn bounded_usize(val: u64, limit: usize, context: &str) -> Result<usize> {
+    if val > limit as u64 {
+        return Err(Error::Decode(format!("{context} length {val} exceeds maximum {limit}")));
+    }
+    Ok(val as usize)
+}
+
 pub(crate) fn encode_uint_head(buf: &mut Vec<u8>, major: u8, val: u64) {
     if val < 24 {
         buf.push(major | val as u8);
@@ -160,7 +182,7 @@ pub(crate) fn decode_text_string(data: &[u8], offset: &mut usize) -> Result<Vec<
         }
     };
 
-    let len_usize = len as usize;
+    let len_usize = bounded_usize(len, MAX_BSTR_LENGTH, "text string")?;
     if *offset + len_usize > data.len() {
         return Err(Error::Decode("unexpected end of text string data".into()));
     }
@@ -411,7 +433,8 @@ fn decode_bstr_len(data: &[u8], offset: &mut usize) -> Result<u64> {
 }
 
 pub(crate) fn decode_bstr(data: &[u8], offset: &mut usize) -> Result<Vec<u8>> {
-    let len = decode_bstr_len(data, offset)? as usize;
+    let raw = decode_bstr_len(data, offset)?;
+    let len = bounded_usize(raw, MAX_BSTR_LENGTH, "bstr")?;
     if *offset + len > data.len() {
         return Err(Error::Decode("unexpected end of bstr data".into()));
     }
@@ -580,7 +603,8 @@ fn encode_value(buf: &mut Vec<u8>, val: &Value) {
 /// [`Error::Decode`] on malformed CBOR structure.
 pub fn decode_payload(data: &[u8]) -> Result<VeraxPayload> {
     let mut offset = 0;
-    let map_len = decode_map_len(data, &mut offset)? as usize;
+    let raw_len = decode_map_len(data, &mut offset)?;
+    let map_len = bounded_usize(raw_len, MAX_MAP_ENTRIES, "payload map")?;
 
     let mut prev_key = 0u64;
     let mut subject = None;
@@ -697,19 +721,31 @@ pub fn decode_payload(data: &[u8]) -> Result<VeraxPayload> {
 }
 
 fn decode_map_value(data: &[u8], offset: &mut usize) -> Result<Vec<(u64, Value)>> {
-    let len = decode_map_len(data, offset)? as usize;
+    decode_map_value_depth(data, offset, 0)
+}
+
+fn decode_map_value_depth(data: &[u8], offset: &mut usize, depth: u32) -> Result<Vec<(u64, Value)>> {
+    if depth > MAX_CBOR_DEPTH {
+        return Err(Error::Decode("nesting depth exceeded".into()));
+    }
+    let raw = decode_map_len(data, offset)?;
+    let len = bounded_usize(raw, MAX_MAP_ENTRIES, "extension map")?;
     let mut entries = Vec::with_capacity(len);
+    let next = depth + 1;
     for _ in 0..len {
         let key = decode_uint(data, offset)?;
-        let val = decode_any_value(data, offset)?;
+        let val = decode_any_value_depth(data, offset, next)?;
         entries.push((key, val));
     }
     Ok(entries)
 }
 
-fn decode_any_value(data: &[u8], offset: &mut usize) -> Result<Value> {
+fn decode_any_value_depth(data: &[u8], offset: &mut usize, depth: u32) -> Result<Value> {
     if *offset >= data.len() {
         return Err(Error::Decode("unexpected end of value".into()));
+    }
+    if depth > MAX_CBOR_DEPTH {
+        return Err(Error::Decode("nesting depth exceeded".into()));
     }
     let byte = data[*offset];
     let major = byte >> 5;
@@ -723,7 +759,7 @@ fn decode_any_value(data: &[u8], offset: &mut usize) -> Result<Value> {
             Ok(Value::Bstr(b))
         }
         5 => {
-            let entries = decode_map_value(data, offset)?;
+            let entries = decode_map_value_depth(data, offset, depth + 1)?;
             Ok(Value::Map(entries))
         }
         4 => Err(Error::Decode("arrays not allowed in extensions".into())),
@@ -820,9 +856,12 @@ pub(crate) fn decode_array_len(data: &[u8], offset: &mut usize) -> Result<u64> {
     Ok(len)
 }
 
-pub(crate) fn skip_value(data: &[u8], offset: &mut usize) -> Result<()> {
+fn skip_value_depth(data: &[u8], offset: &mut usize, depth: u32) -> Result<()> {
     if *offset >= data.len() {
         return Err(Error::Decode("unexpected end while skipping".into()));
+    }
+    if depth > MAX_CBOR_DEPTH {
+        return Err(Error::Decode("nesting depth exceeded".into()));
     }
     let byte = data[*offset];
     let major = byte >> 5;
@@ -877,18 +916,20 @@ pub(crate) fn skip_value(data: &[u8], offset: &mut usize) -> Result<()> {
                 }
                 _ => return Err(Error::Decode("reserved additional info".into())),
             };
+            let next = depth + 1;
             for _ in 0..len {
                 if major == 4 {
-                    skip_value(data, offset)?;
+                    skip_value_depth(data, offset, next)?;
                 } else {
-                    skip_value(data, offset)?;
-                    skip_value(data, offset)?;
+                    skip_value_depth(data, offset, next)?;
+                    skip_value_depth(data, offset, next)?;
                 }
             }
         }
         6 => {
-            skip_value(data, offset)?;
-            skip_value(data, offset)?;
+            let next = depth + 1;
+            skip_value_depth(data, offset, next)?;
+            skip_value_depth(data, offset, next)?;
         }
         7 => {
             if info == 20 || info == 23 || info >= 24 {
@@ -898,6 +939,10 @@ pub(crate) fn skip_value(data: &[u8], offset: &mut usize) -> Result<()> {
         _ => return Err(Error::Decode(format!("unexpected major type {major}"))),
     }
     Ok(())
+}
+
+pub(crate) fn skip_value(data: &[u8], offset: &mut usize) -> Result<()> {
+    skip_value_depth(data, offset, 0)
 }
 
 /// Check whether encoded bytes satisfy the deterministic CBOR subset.
@@ -1020,7 +1065,8 @@ impl RecoveryPolicy {
             let key = decode_uint(data, &mut offset)?;
             match key {
                 1 => {
-                    let arr_len = decode_array_len(data, &mut offset)? as usize;
+                    let arr_raw = decode_array_len(data, &mut offset)?;
+                    let arr_len = bounded_usize(arr_raw, MAX_MAP_ENTRIES, "guardian array")?;
                     let mut gs = Vec::with_capacity(arr_len);
                     for _ in 0..arr_len {
                         let b = decode_bstr(data, &mut offset)?;

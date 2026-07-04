@@ -160,3 +160,25 @@ jobs:
 
       - name: Run fresh-clone reproducibility test
         run: bash scripts/fresh_clone_test.sh
+
+  hardened-fuzz:
+    runs-on: ubuntu-22.04
+    needs: rust-build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: In-test fuzzer (8M random inputs, ~1 hour)
+        run: cargo test --package verax-core --test hardened_conformance hardened_cbor_fuzz -- --nocapture
+        env:
+          FUZZ_ITERATIONS: "8000000"
+        timeout-minutes: 90
