@@ -2,23 +2,23 @@
 #
 # check_ffi_abi.sh — Verify C FFI exported symbols match header declarations
 #
-# Usage: bash scripts/check_ffi_abi.sh [path-to-libaxiom_core_ffi.so]
+# Usage: bash scripts/check_ffi_abi.sh [path-to-libverax_core_ffi.so]
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-HEADER="${PROJECT_ROOT}/crates/axiom-core-ffi/include/axiom_core.h"
+HEADER="${PROJECT_ROOT}/crates/verax-core-ffi/include/verax_core.h"
 
 if [ $# -ge 1 ]; then
     SO_FILE="$1"
 else
-    SO_FILE="${CARGO_TARGET_DIR:-${PROJECT_ROOT}/target/release}/libaxiom_core_ffi.so"
+    SO_FILE="${CARGO_TARGET_DIR:-${PROJECT_ROOT}/target/release}/libverax_core_ffi.so"
 fi
 
 if [ ! -f "$SO_FILE" ]; then
     echo "FATAL: shared library not found at $SO_FILE"
-    echo "Build first: cargo build --release -p axiom-core-ffi"
+    echo "Build first: cargo build --release -p verax-core-ffi"
     exit 1
 fi
 
@@ -27,14 +27,14 @@ if [ ! -f "$HEADER" ]; then
     exit 1
 fi
 
-echo "=== Axiom Protocol — C FFI ABI Check ==="
+echo "=== Verax Protocol — C FFI ABI Check ==="
 echo "Shared lib: $(ls -lh "$SO_FILE" | awk '{print $5}') $SO_FILE"
 echo "Header:     $HEADER"
 echo ""
 
-# Extract exported axiom_* symbols from .so
+# Extract exported verax_* symbols from .so
 nm -D --defined-only "$SO_FILE" \
-    | grep -oP 'axiom_\w+' \
+    | grep -oP 'verax_\w+' \
     | sort -u > /tmp/exported_symbols.txt
 
 echo "Exported symbols ($(wc -l < /tmp/exported_symbols.txt)):"
@@ -42,8 +42,8 @@ cat /tmp/exported_symbols.txt
 echo ""
 
 # Extract function names from header
-grep -oP '(^int |^const char\* |^void )axiom_\w+' "$HEADER" \
-    | grep -oP 'axiom_\w+' \
+grep -oP '(^int |^const char\* |^void )verax_\w+' "$HEADER" \
+    | grep -oP 'verax_\w+' \
     | sort -u > /tmp/header_symbols.txt
 
 echo "Header-declared symbols ($(wc -l < /tmp/header_symbols.txt)):"

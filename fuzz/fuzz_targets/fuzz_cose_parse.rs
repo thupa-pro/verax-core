@@ -11,8 +11,8 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(pk) = ed25519_dalek::VerifyingKey::from_bytes(
         std::convert::TryInto::try_into(pk_bytes).unwrap(),
     ) {
-        let _ = axiom_core::cose::parse_and_verify_ed25519(cose, &pk);
-        let _ = axiom_core::cose::parse_and_verify_mldsa65_only(cose, &ml_dsa_ones());
+        let _ = verax_core::cose::parse_and_verify_ed25519(cose, &pk);
+        let _ = verax_core::cose::parse_and_verify_mldsa65_only(cose, &ml_dsa_ones());
     }
 });
 

@@ -17,7 +17,7 @@
 - [ ] `cargo clippy --workspace -- -D warnings` passes
 - [ ] `cargo test --workspace` passes (all 89+ tests)
 - [ ] PR uses conventional commit format (`feat:`, `fix:`, `docs:`, etc.)
-- [ ] No `unsafe` code in `axiom-core` crate
+- [ ] No `unsafe` code in `verax-core` crate
 - [ ] No `unwrap()` or `expect()` in production code paths
 - [ ] New public API has `///` doc comments
 - [ ] `CHANGELOG.md` updated (if user-facing change)

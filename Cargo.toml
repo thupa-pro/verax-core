@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/axiom-core",
-    "crates/axiom-core-ffi",
-    "crates/axiom-core-python",
-    "crates/axiom-core-node",
-    "crates/axiom-cli",
+    "crates/verax-core",
+    "crates/verax-core-ffi",
+    "crates/verax-core-python",
+    "crates/verax-core-node",
+    "crates/verax-cli",
 ]
 
 [workspace.package]
 version = "1.0.0"
 edition = "2024"
 license = "MIT"
-description = "Axiom Protocol — tamper-evident provenance chains with deterministic CBOR, Ed25519+ML-DSA-65 hybrid signatures, CT transparency anchoring, and PII shredding. IETF audit passed, 101 tests, Axiom-True v1.0"
-repository = "https://github.com/thupa-pro/axiom-core"
-homepage = "https://github.com/axiom-protocol/axiom#readme"
-authors = ["Axiom Protocol Contributors"]
+description = "Verax Protocol — tamper-evident provenance chains with deterministic CBOR, Ed25519+ML-DSA-65 hybrid signatures, CT transparency anchoring, and PII shredding. IETF audit passed, 101 tests, Verax-True v1.0"
+repository = "https://github.com/thupa-pro/verax-core"
+homepage = "https://github.com/verax-protocol/verax#readme"
+authors = ["Verax Protocol Contributors"]

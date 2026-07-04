@@ -1,0 +1,40 @@
+{
+  "version": "Verax Protocol v3.0",
+  "spec_sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "predicates": {
+    "Attests": 0,
+    "Authors": 1,
+    "DerivedFrom": 2,
+    "Supersedes": 3,
+    "Revokes": 4,
+    "Endorses": 5,
+    "Appends": 6,
+    "CompliesWith": 7,
+    "Recovers": 8
+  },
+  "error_codes": {
+    "1": "invalid COSE_Sign1 envelope structure or payload",
+    "2": "CBOR encoding violates determinism rules",
+    "3": "Ed25519 or composite signature failure",
+    "4": "lineage chain validation error",
+    "5": "parent/child subject hash mismatch",
+    "6": "child timestamp precedes parent",
+    "7": "REVOKES issuer does not match revoked statement key",
+    "8": "CT log inclusion proof is invalid",
+    "9": "statement has been revoked",
+    "10": "a required field has an invalid value",
+    "11": "cryptographic operation failure",
+    "12": "CBOR decode failure (structure)",
+    "13": "expected/actual hash length mismatch",
+    "14": "I/O operation failure",
+    "15": "payload field validation error",
+    "16": "recovery policy check failed",
+    "17": "CT anchor hash verification failure",
+    "18": "lineage traversal exceeded max depth",
+    "19": "CBOR encoding failure"
+  },
+  "cddl": "AxiomPayload = {\n  subject: bstr .size 32,\n  predicate: uint .size 1 .ne 9 .ne 10 .ne 11 .ne 12 .ne 13 .ne 14 .ne 15 .ne 16 .ne 17 .ne 18 .ne 19,\n  ? object: bstr .size 32,\n  ? lineage: bstr .size 32,\n  ? nonce: bstr .size 32,\n  ? timestamp: uint,\n  ? * uint => any\n}\n\nCoseSign1 = [\n  protected: bstr,\n  unprotected: {},\n  payload: bstr,\n  signature: bstr,\n]\n\nProtectedHeader = {\n  1: int,      ; algorithm\n  4: bstr,     ; kid\n  ? * int => any\n}\n",
+  "max_lineage_depth": 1024,
+  "hash_algorithm": "BLAKE3-256",
+  "signature_algorithms": ["Ed25519 (-8)", "ML-DSA-65 (-38)", "Ed25519 + ML-DSA-65 (-39 composite)"]
+}

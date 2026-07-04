@@ -410,7 +410,7 @@ def generate():
     all_vectors = VALID_VECTORS + COMPOSITE_VECTORS + INVALID_VECTORS + ADDITIONAL_INVALID
     suite = {
         "version": "3.0.0",
-        "description": "Axiom Protocol Universal Conformance Suite — 50+ deterministic test vectors for cross-language verification",
+        "description": "Verax Protocol Universal Conformance Suite — 50+ deterministic test vectors for cross-language verification",
         "signing_key_seed_hex": SIGNING_KEY_SEED,
         "signing_key_pubkey_hex": SIGNING_KEY_PK,
         "ml_dsa_seed_hex": ML_DSA_SEED,

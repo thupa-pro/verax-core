@@ -2,7 +2,7 @@
 #
 # check_benchmark_regression.sh — Benchmark regression guard
 #
-# Runs `axiom benchmark` and compares metrics against stored baseline.
+# Runs `verax benchmark` and compares metrics against stored baseline.
 # Fails if any metric exceeds baseline * threshold.
 #
 set -euo pipefail
@@ -10,12 +10,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASELINE="${SCRIPT_DIR}/benchmark_baseline.json"
 
-CLI="${1:-${CARGO_TARGET_DIR:-target/release}/axiom}"
+CLI="${1:-${CARGO_TARGET_DIR:-target/release}/verax}"
 
 if [ ! -f "$CLI" ]; then echo "FATAL: CLI not found at $CLI"; exit 1; fi
 if [ ! -f "$BASELINE" ]; then echo "FATAL: baseline not found at $BASELINE"; exit 1; fi
 
-echo "=== Axiom Protocol — Benchmark Regression Check ==="
+echo "=== Verax Protocol — Benchmark Regression Check ==="
 
 OUTPUT=$("$CLI" benchmark 2>&1)
 echo "$OUTPUT"

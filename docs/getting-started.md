@@ -12,14 +12,14 @@
 ### Build from Source
 
 ```bash
-git clone https://github.com/anomalyco/axiom-core.git
-cd axiom-core
+git clone https://github.com/anomalyco/verax-core.git
+cd verax-core
 
 # Build all crates
 cargo build --release --workspace
 
 # Install CLI
-cargo install --path crates/axiom-cli
+cargo install --path crates/verax-cli
 ```
 
 ## Quick Walkthrough
@@ -27,31 +27,31 @@ cargo install --path crates/axiom-cli
 ### 1. Initialize a Project
 
 ```bash
-axiom init
+verax init
 ```
 
-Creates a `.axiom/` directory with project configuration.
+Creates a `.verax/` directory with project configuration.
 
 ### 2. Create an Artifact
 
 ```bash
-echo "Hello, Axiom!" > hello.txt
+echo "Hello, verax!" > hello.txt
 ```
 
 ### 3. Sign It
 
 ```bash
-axiom sign hello.txt
+verax sign hello.txt
 ```
 
 This generates:
-- An ephemeral Ed25519 signing key (saved to `.axiom/keys/`)
+- An ephemeral Ed25519 signing key (saved to `.verax/keys/`)
 - A signed `.axm` file (`hello.axm`)
 
 ### 4. Verify
 
 ```bash
-axiom verify hello.axm
+verax verify hello.axm
 ```
 
 The verify command checks:
@@ -63,7 +63,7 @@ The verify command checks:
 
 ```bash
 # With chain, trusted log key, and revocation cache
-axiom verify hello.axm \
+verax verify hello.axm \
   --chain-dir ./chain \
   --trusted-log-key <hex_key> \
   --revocation-cache cache.json
@@ -73,17 +73,17 @@ axiom verify hello.axm \
 
 ```bash
 # Composite Ed25519 + ML-DSA-65
-axiom sign hello.txt --composite
+verax sign hello.txt --composite
 
 # With CT anchor binding
-axiom sign hello.txt --composite --ct-anchor-file anchor.cbor
+verax sign hello.txt --composite --ct-anchor-file anchor.cbor
 ```
 
 ### 7. Inspect and Lint
 
 ```bash
-axiom inspect hello.axm
-axiom lint hello.axm
+verax inspect hello.axm
+verax lint hello.axm
 ```
 
 ## Tutorial
@@ -91,16 +91,16 @@ axiom lint hello.axm
 Run the interactive tutorial:
 
 ```bash
-axiom tutorial
+verax tutorial
 ```
 
 ## Using the Library
 
-Add `axiom-core` to your `Cargo.toml`:
+Add `verax-core` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-axiom-core = { git = "https://github.com/anomalyco/axiom-core.git" }
+verax-core = { git = "https://github.com/anomalyco/verax-core.git" }
 ```
 
 Example:

@@ -1,0 +1,7 @@
+# Verax Protocol Project Configuration
+[project]
+name = "verax-project"
+version = "1.0.0"
+
+[defaults]
+algorithm = "ed25519"

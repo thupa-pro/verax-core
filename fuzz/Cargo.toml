@@ -1,5 +1,5 @@
 [package]
-name = "axiom-core-fuzz"
+name = "verax-core-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-axiom-core = { path = "../crates/axiom-core" }
+verax-core = { path = "../crates/verax-core" }
 ed25519-dalek = { version = "2", default-features = false }
 ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
 

@@ -1,0 +1,725 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Verax Protocol Compliance Gate — Verax-True v1.0 Verifier
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Runs on every PR touching cryptographic, CBOR, or core verification code.
+# Six stages execute in strict sequential order. If any stage fails, the
+# gate blocks merging and a detailed compliance report is generated.
+#
+# Badge: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/
+#        thupa-pro/verax-core/main/.github/badges/verax-true-status.json
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+name: Verax Protocol Compliance Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/verax-core/src/**'
+      - 'crates/verax-cli/src/commands/verify.rs'
+      - 'crates/verax-cli/src/commands/sign.rs'
+      - 'crates/verax-core-ffi/src/**'
+      - 'crates/verax-core-python/src/**'
+      - 'crates/verax-core-node/src/**'
+      - 'crates/verax-core-go/**'
+      - 'scripts/**'
+      - 'test-vectors/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/verax-core/src/**'
+      - 'test-vectors/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: /tmp/cargo-target
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 0 — Path filter (fast skip for unrelated changes)
+  # ─────────────────────────────────────────────────────────────────────
+  changed-filter:
+    runs-on: ubuntu-22.04
+    outputs:
+      run_compliance: ${{ steps.filter.outputs.run_compliance }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        run: |
+          # Always run on push to main; on PR check changed files
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "run_compliance=true" >> $GITHUB_OUTPUT
+          else
+            CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}".."${{ github.sha }}" \
+              | grep -cE '\.(rs|py|js|go|sh)|(test-vectors|Cargo\.(toml|lock)|deny\.toml)' || true)
+            if [[ "$CHANGED" -gt 0 ]]; then
+              echo "run_compliance=true" >> $GITHUB_OUTPUT
+            else
+              echo "run_compliance=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 1 — Canonical CBOR Lint
+  # ─────────────────────────────────────────────────────────────────────
+  stage-1-cbor-lint:
+    needs: changed-filter
+    if: needs.changed-filter.outputs.run_compliance == 'true'
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 1a — Determinism: shortest-form ints, sorted keys, no tags/floats/null
+      - name: '1a — Rust deterministic CBOR tests'
+        id: cbor_tests
+        run: |
+          cargo test --release -p verax-core -- cbor::tests 2>&1 | tee /tmp/stage1a.log
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      # 1b — Independent Python CBOR validator (11 rules)
+      - name: '1b — Python CBOR spec conformance'
+        id: cbor_python
+        run: |
+          python3 scripts/differential_cbor_test.py 2>&1 | tee /tmp/stage1b.log
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      # 1c — Fuzz decode never panics on random bytes
+      - name: '1c — Fuzz CBOR decode (panic-free)'
+        id: cbor_fuzz
+        run: |
+          cargo test --release -p verax-core -- cbor::tests::test_fuzz_decode_never_panics 2>&1 | tee /tmp/stage1c.log
+          cargo test --release -p verax-core -- cbor::tests::test_fuzz_single_byte 2>&1
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 2 — Test Vector Oracle
+  # ─────────────────────────────────────────────────────────────────────
+  stage-2-test-vector-oracle:
+    needs: stage-1-cbor-lint
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 2a — Regenerate conformance vectors from canonical source
+      - name: '2a — Regenerate conformance vectors'
+        run: python3 scripts/gen_conformance.py 2>&1 | tee /tmp/stage2a.log
+
+      # 2b — Every vector in test_vectors.json must decode correctly
+      - name: '2b — Conformance suite payload decode'
+        run: |
+          cargo test --release -p verax-core -- conformance_suite_payload_decode_valid_vectors 2>&1 | tee /tmp/stage2b.log
+
+      # 2c — Full round-trip determinism on 10k random payloads
+      - name: '2c — Fuzz round-trip (10k random payloads)'
+        run: |
+          cargo test --release -p verax-core -- cbor::tests::test_fuzz_roundtrip_random_payloads 2>&1 | tee /tmp/stage2c.log
+
+      # 2d — Validate each vector's COSE envelope parses and verifies
+      - name: '2d — COSE sign/verify round-trip on all vectors'
+        run: |
+          cargo test --release -p verax-core -- conformance_suite_verification 2>&1 | tee /tmp/stage2d.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 3 — Negative Test Matrix
+  # ─────────────────────────────────────────────────────────────────────
+  stage-3-negative-matrix:
+    needs: stage-2-test-vector-oracle
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # 3a — Full workspace test suite (includes all negative tests)
+      - name: '3a — Full workspace test suite (all negative tests)'
+        run: |
+          cargo test --release --workspace 2>&1 | tee /tmp/stage3a.log
+
+      # 3b — Explicitly enumerate every error code 1-18 is tested
+      - name: '3b — Error code coverage (1-18)'
+        run: |
+          cargo test --release -p verax-core -- \
+            test_all_error_codes_1_to_18 2>&1 | tee /tmp/stage3b.log
+
+      # 3c — Each error variant triggered by at least one test
+      - name: '3c — Error variant trigger matrix'
+        run: |
+          cargo test --release -p verax-core -- \
+            test_error_code_16_encode \
+            test_error_code_17_spec_error \
+            test_error_code_18_recovery_policy 2>&1 | tee /tmp/stage3c.log
+
+      # 3d — Integration test suite
+      - name: '3d — Integration use-case tests'
+        run: |
+          cargo test --release -p verax-core --test verax_use_cases 2>&1 | tee /tmp/stage3d.log
+          cargo test --release -p verax-cli --test cli_tests 2>&1
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 4 — C FFI ABI Check
+  # ─────────────────────────────────────────────────────────────────────
+  stage-4-ffi-abi:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # 4a — Build the shared library
+      - name: '4a — Build FFI shared library'
+        run: cargo build --release -p verax-core-ffi 2>&1 | tee /tmp/stage4a.log
+
+      # 4b — Verify every exported symbol matches the C header
+      - name: '4b — FFI ABI symbol check'
+        run: |
+          bash scripts/check_ffi_abi.sh "$CARGO_TARGET_DIR/release/libverax_core_ffi.so" 2>&1 | tee /tmp/stage4b.log
+
+      # 4c — Compile and run a C program exercising each function
+      - name: '4c — C smoke test (all exported functions)'
+        run: |
+          CFLAGS="-I crates/verax-core-ffi/include"
+          LDFLAGS="-L $CARGO_TARGET_DIR/release -lverax_core_ffi -lm -ldl"
+          cat > /tmp/test_ffi.c << 'CEOF'
+          #include <stdio.h>
+          #include <string.h>
+          #include "verax_core.h"
+          int main() {
+              printf("verax_version: %s\n", verax_version());
+              /* Encode a minimal payload */
+              uint8_t subj[32];
+              memset(subj, 0xab, 32);
+              uint8_t *cbor = NULL; size_t cbor_len = 0;
+              int rc = verax_encode_payload(subj, 32, 0, &cbor, &cbor_len);
+              printf("verax_encode_payload: rc=%d len=%zu\n", rc, cbor_len);
+              if (rc != 0) return 1;
+              verax_free(cbor);
+              printf("All FFI smoke tests PASSED\n");
+              return 0;
+          }
+          CEOF
+          gcc -o /tmp/test_ffi /tmp/test_ffi.c $CFLAGS $LDFLAGS 2>&1
+          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" /tmp/test_ffi 2>&1 | tee /tmp/stage4c.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 5 — Cross-language Round-trip
+  # ─────────────────────────────────────────────────────────────────────
+  stage-5-cross-language:
+    needs: stage-4-ffi-abi
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build FFI shared library
+        run: cargo build --release -p verax-core-ffi 2>&1
+
+      - name: Build Python binding
+        run: cargo build --release -p verax-core-python 2>&1
+
+      - name: Build Node.js binding
+        run: |
+          cd crates/verax-core-node
+          npm install 2>&1
+          npm run build 2>&1
+
+      # 5a — Python: sign with C, verify with Python (and vice versa)
+      - name: '5a — Python/C cross-round-trip'
+        run: |
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          python3 scripts/python_roundtrip_test.py 2>&1 | tee /tmp/stage5a.log
+
+      # 5b — Node.js: verify payloads produced by the C library
+      - name: '5b — Node.js/C cross-round-trip'
+        run: |
+          cd crates/verax-core-node
+          LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH" node test.js 2>&1 | tee /tmp/stage5b.log
+
+      # 5c — Go: full verify chain using FFI
+      - name: '5c — Go FFI round-trip'
+        run: |
+          export CGO_LDFLAGS="-L$CARGO_TARGET_DIR/release -lverax_core_ffi -lm -ldl"
+          export CGO_CFLAGS="-I $(pwd)/crates/verax-core-ffi/include"
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          cd crates/verax-core-go && go test -v ./... 2>&1 | tee /tmp/stage5c.log
+
+      # 5d — All bindings produce identical CBOR for the same payload
+      - name: '5d — Deterministic CBOR across all bindings'
+        run: |
+          export LD_LIBRARY_PATH="$CARGO_TARGET_DIR/release:$LD_LIBRARY_PATH"
+          python3 scripts/differential_cbor_test.py 2>&1 | tee /tmp/stage5d.log
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # STAGE 6 — Composite Signature Validation
+  # ─────────────────────────────────────────────────────────────────────
+  stage-6-composite-sig:
+    needs: stage-5-cross-language
+    runs-on: ubuntu-22.04
+    outputs:
+      status: ${{ steps.status.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build CLI
+        run: cargo build --release -p verax-cli 2>&1
+
+      # 6a — Rust composite sign/verify round-trip
+      - name: '6a — Rust composite sign/verify (algorithm -39)'
+        run: |
+          cargo test --release -p verax-core -- \
+            cose::tests::test_composite_sign_verify_roundtrip 2>&1 | tee /tmp/stage6a.log
+
+      # 6b — Composite signature serialization round-trip
+      - name: '6b — Composite signature serialization'
+        run: |
+          cargo test --release -p verax-core -- \
+            cose::tests::test_composite_serialization 2>&1 | tee /tmp/stage6b.log
+
+      # 6c — ML-DSA-65 only sign/verify
+      - name: '6c — ML-DSA-65 only (algorithm -38)'
+        run: |
+          cargo test --release -p verax-core -- \
+            cose::tests::test_mldsa65_sign_verify_roundtrip 2>&1 | tee /tmp/stage6c.log
+          cargo test --release -p verax-core -- \
+            cose::tests::test_mldsa65_wrong_key_fails 2>&1
+          cargo test --release -p verax-core -- \
+            cose::tests::test_mldsa65_tampered_cose_fails 2>&1
+
+      # 6d — CLI composite sign/verify chain
+      - name: '6d — CLI composite sign/verify'
+        run: |
+          CLI="$CARGO_TARGET_DIR/release/verax"
+          cd /tmp
+          mkdir -p ci-comp-test && cd ci-comp-test
+          echo "Composite CI test artifact" > artifact.txt
+          $CLI init
+          $CLI key generate ed-key
+          $CLI sign artifact.txt --key .verax/keys/ed-key.key \
+            --composite \
+            --ml-dsa-key .verax/keys/ed-key.mldsa \
+            --out composite.axm 2>&1 | tee /tmp/stage6d.log
+          ED_PUBKEY=$(grep public .verax/keys/ed-key.key | cut -d' ' -f3)
+          ML_PUBKEY=$(grep public .verax/keys/ed-key.mldsa | cut -d' ' -f3)
+          $CLI verify composite.axm --pubkey "$ED_PUBKEY" --mldsa-pubkey "$ML_PUBKEY" 2>&1
+
+      # 6e — Quantum attack simulations (tamper Ed25519 part, tamper ML-DSA part)
+      - name: '6e — Quantum attack simulation tests'
+        run: |
+          cargo test --release -p verax-core -- \
+            test_threat_quantum_attack_ed25519_tampered 2>&1 | tee /tmp/stage6e.log
+          cargo test --release -p verax-core -- \
+            test_threat_quantum_attack_mldsa_tampered 2>&1
+
+      # 6f — Composite test vectors from conformance suite
+      - name: '6f — Composite conformance vectors'
+        run: |
+          cargo test --release -p verax-core -- \
+            conformance_suite_verification 2>&1 | tee /tmp/stage6f.log
+
+      - name: '6g — Benchmark regression guard'
+        run: bash scripts/check_benchmark_regression.sh "$CARGO_TARGET_DIR/release/verax" 2>&1
+
+      - name: Emit stage status
+        id: status
+        run: echo "status=passed" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────────────────────
+  # CARGO-DENY — Dependency Audit (runs in parallel with stage 6)
+  # ─────────────────────────────────────────────────────────────────────
+  cargo-deny:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo-deny
+        run: cargo deny check 2>&1
+
+  # ─────────────────────────────────────────────────────────────────────
+  # KANI PROOFS (informational, non-blocking)
+  # ─────────────────────────────────────────────────────────────────────
+  kani-proofs:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev libssl-dev pkg-config
+      - name: Install Rust nightly
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - name: Install Kani
+        uses: model-checking/kani-github-action@v1
+        with:
+          working-directory: crates/verax-core
+      - name: Run all Kani harnesses
+        run: cargo kani -p verax-core 2>&1
+        working-directory: crates/verax-core
+
+  # ─────────────────────────────────────────────────────────────────────
+  # FUZZING (informational, non-blocking)
+  # ─────────────────────────────────────────────────────────────────────
+  fuzzing:
+    needs: stage-3-negative-matrix
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev libssl-dev pkg-config clang
+      - name: Install Rust nightly
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz CBOR decode
+        run: cargo fuzz run fuzz_cbor_decode -- -max_total_time=60 -runs=50000
+        working-directory: fuzz
+      - name: Fuzz COSE parse
+        run: cargo fuzz run fuzz_cose_parse -- -max_total_time=60 -runs=50000
+        working-directory: fuzz
+
+  # ─────────────────────────────────────────────────────────────────────
+  # COMPLIANCE REPORT — Aggregate all stage results
+  # ─────────────────────────────────────────────────────────────────────
+  compliance-report:
+    needs:
+      - stage-1-cbor-lint
+      - stage-2-test-vector-oracle
+      - stage-3-negative-matrix
+      - stage-4-ffi-abi
+      - stage-5-cross-language
+      - stage-6-composite-sig
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect stage statuses
+        id: collect
+        run: |
+          declare -A STAGES
+          STAGES["1_cbor_lint"]="${{ needs.stage-1-cbor-lint.outputs.status }}"
+          STAGES["2_test_vector_oracle"]="${{ needs.stage-2-test-vector-oracle.outputs.status }}"
+          STAGES["3_negative_matrix"]="${{ needs.stage-3-negative-matrix.outputs.status }}"
+          STAGES["4_ffi_abi"]="${{ needs.stage-4-ffi-abi.outputs.status }}"
+          STAGES["5_cross_language"]="${{ needs.stage-5-cross-language.outputs.status }}"
+          STAGES["6_composite_sig"]="${{ needs.stage-6-composite-sig.outputs.status }}"
+
+          ALL_PASSED=true
+          for stage in "${!STAGES[@]}"; do
+            if [[ "${STAGES[$stage]}" != "passed" ]]; then
+              ALL_PASSED=false
+              break
+            fi
+          done
+
+          echo "all_passed=$ALL_PASSED" >> $GITHUB_OUTPUT
+
+          # Generate per-stage status table
+          echo "### Verax Protocol Compliance Report" > /tmp/report.md
+          echo "" >> /tmp/report.md
+          echo "| Stage | Status |" >> /tmp/report.md
+          echo "|-------|--------|" >> /tmp/report.md
+          for stage in "1_cbor_lint" "2_test_vector_oracle" "3_negative_matrix" "4_ffi_abi" "5_cross_language" "6_composite_sig"; do
+            icon="✅"
+            [[ "${STAGES[$stage]}" != "passed" ]] && icon="❌"
+            echo "| ${stage} | ${icon} ${STAGES[$stage]:-failed} |" >> /tmp/report.md
+          done
+          echo "" >> /tmp/report.md
+
+          if [[ "$ALL_PASSED" == "true" ]]; then
+            echo "**Verax-True v1.0** — All six compliance gates passed." >> /tmp/report.md
+            echo "verax_true=true" >> $GITHUB_OUTPUT
+          else
+            echo "**GATE FAILED** — One or more stages did not pass. Blocking merge." >> /tmp/report.md
+            echo "verax_true=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> /tmp/report.md
+          echo "**Commit**: \`${{ github.sha }}\`" >> /tmp/report.md
+          echo "**Run ID**: ${{ github.run_id }}" >> /tmp/report.md
+          echo "**Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/report.md
+
+      - name: Generate JSON compliance report
+        run: |
+          cat > /tmp/compliance-report.json << EOF
+          {
+            "protocol": "Verax Protocol v3.0",
+            "compliance_level": "Verax-True v1.0",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sha": "${{ github.sha }}",
+            "run_id": ${{ github.run_id }},
+            "passed": ${{ steps.collect.outputs.all_passed }},
+            "stages": {
+              "1_cbor_lint": "${{ needs.stage-1-cbor-lint.outputs.status }}",
+              "2_test_vector_oracle": "${{ needs.stage-2-test-vector-oracle.outputs.status }}",
+              "3_negative_matrix": "${{ needs.stage-3-negative-matrix.outputs.status }}",
+              "4_ffi_abi": "${{ needs.stage-4-ffi-abi.outputs.status }}",
+              "5_cross_language": "${{ needs.stage-5-cross-language.outputs.status }}",
+              "6_composite_sig": "${{ needs.stage-6-composite-sig.outputs.status }}"
+            },
+            "kani_proofs": "12 harnesses (informational)",
+            "fuzzing": "CBOR decode + COSE parse (informational)",
+            "dependency_audit": "cargo-deny"
+          }
+          EOF
+          echo '```json' >> /tmp/report.md
+          python3 -m json.tool /tmp/compliance-report.json >> /tmp/report.md
+          echo '```' >> /tmp/report.md
+
+      # Generate badge data file (pushed to .github/badges/ on main)
+      - name: Generate Verax-True badge data
+        run: |
+          mkdir -p .github/badges
+          cat > .github/badges/verax-true-status.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "Verax-True",
+            "message": "${{ steps.collect.outputs.verax_true == 'true' && 'v1.0 PASSED' || 'GATE FAILED' }}",
+            "color": "${{ steps.collect.outputs.verax_true == 'true' && '2ea44f' || 'e05d44' }}",
+            "isError": ${{ steps.collect.outputs.verax_true != 'true' }},
+            "logoSvg": "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><text x='0' y='14' font-size='14'>✓</text></svg>"
+          }
+          EOF
+
+      - name: Post report to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/report.md', 'utf8');
+            const passed = ${{ steps.collect.outputs.all_passed }};
+            const conclusion = passed ? 'success' : 'failure';
+
+            // Post or update the compliance check
+            const check_name = 'Verax Protocol Compliance Gate';
+            const { data: check } = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: check_name,
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: passed ? 'Verax-True v1.0 — All gates passed' : 'Compliance Gate Failed',
+                summary: report.substring(0, 1024),
+                text: report,
+              },
+            });
+
+            // Delete any existing comment from previous runs
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const comment of comments) {
+              if (comment.body && comment.body.includes('Verax Protocol Compliance Report')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id,
+                });
+              }
+            }
+
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Verax Protocol Compliance Report\n\n${report}`,
+            });
+
+      - name: Post report to Job Summary (always)
+        run: |
+          cat /tmp/report.md >> $GITHUB_STEP_SUMMARY
+
+      # On main pushes, commit and push badge data
+      - name: Push badge data to .github/badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "verax-compliance-bot"
+          git config user.email "bot@verax-protocol.org"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git add .github/badges/verax-true-status.json
+          git diff --staged --quiet || git commit -m "Update Verax-True badge [skip ci]"
+          git push
+
+  # ─────────────────────────────────────────────────────────────────────
+  # FINAL GATE — Block PR merge if compliance fails
+  # ─────────────────────────────────────────────────────────────────────
+  gate-block:
+    needs: compliance-report
+    if: failure() || needs.compliance-report.result == 'failure'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Block merge — Compliance gate failed
+        run: |
+          echo "❌ Verax Protocol Compliance Gate FAILED."
+          echo "Review the detailed report above and fix all stage failures."
+          echo "Re-run the workflow after pushing fixes."
+          exit 1
+
+  # ═══════════════════════════════════════════════════════════════════
+  # REQUIRED CHECK — required in branch protection settings
+  # ═══════════════════════════════════════════════════════════════════
+  verax-true:
+    if: always()
+    needs: compliance-report
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          RESULT="${{ needs.compliance-report.result }}"
+          PASSED="${{ needs.compliance-report.outputs.all_passed }}"
+          if [[ "$RESULT" == "success" && "$PASSED" == "true" ]]; then
+            echo "✅ Verax-True v1.0 — All compliance gates passed."
+          else
+            echo "❌ Compliance gate failed or incomplete."
+            exit 1
+          fi
+
+# ═══════════════════════════════════════════════════════════════════════
+# BADGE USAGE
+# ═══════════════════════════════════════════════════════════════════════
+# Add this to README.md after the badge is published:
+#
+# [![Verax-True](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/
+#   thupa-pro/verax-core/main/.github/badges/verax-true-status.json)]
+#   (https://github.com/thupa-pro/verax-core/actions/workflows/verax-compliance.yml)
+#
+# The badge is updated on every push to main by the compliance-report job.

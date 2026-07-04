@@ -1,4 +1,4 @@
-# Contributing to Axiom Protocol
+# Contributing to verax Protocol
 
 ## Getting Started
 
@@ -23,9 +23,9 @@ cargo build --workspace
 cargo build --release --workspace
 
 # Build specific crate
-cargo build -p axiom-core
-cargo build -p axiom-cli
-cargo build -p axiom-core-ffi
+cargo build -p verax-core
+cargo build -p verax-cli
+cargo build -p verax-core-ffi
 ```
 
 ### Testing
@@ -38,24 +38,24 @@ cargo test --workspace
 cargo test --release --workspace
 
 # Run specific test
-cargo test -p axiom-core -- test_name
+cargo test -p verax-core -- test_name
 
 # Run Go tests (requires FFI shared library)
-cargo build --release -p axiom-core-ffi
-cd axiom-go && go test -v ./...
+cargo build --release -p verax-core-ffi
+cd verax-go && go test -v ./...
 ```
 
 ### Kani Proofs
 
 ```bash
-cargo kani -p axiom-core --harness harness_name
+cargo kani -p verax-core --harness harness_name
 ```
 
-Requires nightly toolchain. Kani proof harnesses are in `crates/axiom-core/src/verify.rs`.
+Requires nightly toolchain. Kani proof harnesses are in `crates/verax-core/src/verify.rs`.
 
 ## Code Style
 
-- **No `unsafe` code** in the core crate. The entire `axiom-core` crate is `#![deny(unsafe_code)]`.
+- **No `unsafe` code** in the core crate. The entire `verax-core` crate is `#![deny(unsafe_code)]`.
 - Format with `cargo fmt` before committing.
 - Run `cargo clippy -- -D warnings` before opening a PR.
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/).

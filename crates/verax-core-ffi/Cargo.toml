@@ -1,0 +1,20 @@
+[package]
+name = "verax-core-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "C FFI bindings for Verax Protocol Core"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+doctest = false
+
+[dependencies]
+verax-core = { path = "../verax-core" }
+ed25519-dalek = { version = "2", default-features = false }
+ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
+sha2 = "0.10"
+hex = "0.4"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libc = "0.2"

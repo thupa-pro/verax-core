@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an enhancement for the Axiom protocol
+about: Suggest an enhancement for the verax protocol
 title: ''
 labels: enhancement
 assignees: ''

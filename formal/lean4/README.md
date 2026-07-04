@@ -1,6 +1,6 @@
 # Lean 4 Proofs
 
-This directory contains Lean 4 formal proofs for the Axiom protocol.
+This directory contains Lean 4 formal proofs for the verax protocol.
 
 ## Files
 

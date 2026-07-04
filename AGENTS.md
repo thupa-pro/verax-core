@@ -1,11 +1,11 @@
-# Axiom Agent Constitution
+# verax Agent Constitution
 
-Hard constraints for AI coding agents working on axiom-core.
+Hard constraints for AI coding agents working on verax-core.
 
 ## 1. Integrity Invariants
 
-- **NO `unsafe` code** in `axiom-core`. The crate is `#![deny(unsafe_code)]`. FFI crates (`axiom-core-ffi`) may use `unsafe` only where absolutely required by the C ABI.
-- **NO adding `std`** to `axiom-core`. The crate is `#![no_std]` with `extern crate alloc`.
+- **NO `unsafe` code** in `verax-core`. The crate is `#![deny(unsafe_code)]`. FFI crates (`verax-core-ffi`) may use `unsafe` only where absolutely required by the C ABI.
+- **NO adding `std`** to `verax-core`. The crate is `#![no_std]` with `extern crate alloc`.
 - **NO `unwrap()` or `expect()`** in production code paths. Use `?` with proper error types. Panics are only acceptable in test code.
 - **NO `panic!()`** in production code paths.
 - **NO hardcoded secrets, keys, or passwords** in source code.
@@ -21,7 +21,7 @@ Hard constraints for AI coding agents working on axiom-core.
 ## 3. Dependency Invariants
 
 - No GPL or copyleft-licensed dependencies.
-- All new dependencies MUST be pre-approved for the `no_std` target (if added to `axiom-core`).
+- All new dependencies MUST be pre-approved for the `no_std` target (if added to `verax-core`).
 - Run `cargo deny check` after any dependency change. Do NOT add ignores without triage.
 
 ## 4. Build Invariants

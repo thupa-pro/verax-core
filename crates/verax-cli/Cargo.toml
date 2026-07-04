@@ -1,0 +1,31 @@
+[package]
+name = "verax-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Verax Protocol CLI — sign, verify, inspect, and trace provenance chains with composite post-quantum signatures, CT log anchoring, revocation cache, and full DAG lineage walking"
+
+[dependencies]
+verax-core = { path = "../verax-core" }
+ed25519-dalek = { version = "2", default-features = false, features = ["digest", "zeroize"] }
+ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+base64 = "0.22"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+reedline = "0.37"
+nu-ansi-term = "0.50"
+getrandom = "0.2"
+multibase = "0.9"
+clap_complete = "4"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "verax"
+path = "src/main.rs"

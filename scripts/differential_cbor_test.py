@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Differential CBOR Conformance Specification Test for Axiom Protocol v3.0.
+Differential CBOR Conformance Specification Test for Verax Protocol v3.0.
 
 Validates CBOR byte sequences against the canonical encoding rules WITHOUT
 needing a reference CBOR library. This serves as an independent specification
@@ -489,7 +489,7 @@ def _skip_value(data: bytes, start: int) -> int | None:
 
 
 def run_all():
-    print("Axiom Protocol CBOR Conformance Specification Test")
+    print("Verax Protocol CBOR Conformance Specification Test")
     print("=" * 55)
     print()
     test_rule1_shortest_uint()

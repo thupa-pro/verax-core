@@ -1,0 +1,58 @@
+[
+  {
+    "label": "Google 'Argon' 2024 (aviation)",
+    "public_key_hex": "3004408e42f0c6c41fce5c3a1bb354bdc2cc05d24bf3f52c3bba28efbf2babb4",
+    "log_id": "Argon2024",
+    "url": "https://ct.googleapis.com/logs/argon/",
+    "description": "Google-operated CT log, RFC 6962 v1/v2, SHA-256 hash"
+  },
+  {
+    "label": "Google 'Argon' 2025 (aviation)",
+    "public_key_hex": "dfb5cb54bf317fa63e0c07b8b7ec3f29a8e96ad3c20c9a1c1075ffd30763112a",
+    "log_id": "Argon2025",
+    "url": "https://ct.googleapis.com/logs/argon/",
+    "description": "Google-operated CT log, RFC 6962 v1/v2, SHA-256 hash"
+  },
+  {
+    "label": "Cloudflare 'Nimbus' 2024",
+    "public_key_hex": "f1d12f8a5ad9d5779c52acaca74df2f4caa47f02570b37c3c82240f3e0ffae5b",
+    "log_id": "Nimbus2024",
+    "url": "https://ct.cloudflare.com/logs/nimbus/",
+    "description": "Cloudflare-operated CT log"
+  },
+  {
+    "label": "Cloudflare 'Nimbus' 2025",
+    "public_key_hex": "eeba9cee48e8ec7bd9deef4b243ac307a5d7fcdcb152a441288c2c6c3bb7c379",
+    "log_id": "Nimbus2025",
+    "url": "https://ct.cloudflare.com/logs/nimbus/",
+    "description": "Cloudflare-operated CT log"
+  },
+  {
+    "label": "DigiCert 'Yeti' 2024",
+    "public_key_hex": "74c9c36712a65fff497acc2b2b21b181fa8e1ad4f8bb07c4b9429bd4412bce0c",
+    "log_id": "Yeti2024",
+    "url": "https://ct.digicert.com/log/yeti/",
+    "description": "DigiCert-operated CT log"
+  },
+  {
+    "label": "DigiCert 'Yeti' 2025",
+    "public_key_hex": "3c13e0732b0b0a9dbfd35a57d133c42673bdf500b0b31c0b737bab9a3d4d5761",
+    "log_id": "Yeti2025",
+    "url": "https://ct.digicert.com/log/yeti/",
+    "description": "DigiCert-operated CT log"
+  },
+  {
+    "label": "Sectigo 'Sabre' 2024",
+    "public_key_hex": "bbd98c42cb5c55e0d7762c9e5f9a735260fb340aae43f66d2bea4fa8500d9fa3",
+    "log_id": "Sabre2024",
+    "url": "https://ct.sectigo.com/log/sabre/",
+    "description": "Sectigo-operated CT log"
+  },
+  {
+    "label": "Sectigo 'Sabre' 2025",
+    "public_key_hex": "87a8a0b56c44c54e3846a1ccf201e546b634107d382f3e2f3c1dedf2a18d7f83",
+    "log_id": "Sabre2025",
+    "url": "https://ct.sectigo.com/log/sabre/",
+    "description": "Sectigo-operated CT log"
+  }
+]

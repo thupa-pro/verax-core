@@ -1,4 +1,4 @@
-# Security Audit: Axiom Protocol v3.0
+# Security Audit: verax Protocol v3.0
 
 ## Constant-Time Verification Analysis
 
@@ -8,7 +8,7 @@
 |-----------|---------|----------------|-------|
 | Ed25519 | `ed25519-dalek` v2 (default features) | ✅ Yes | Uses `verify_strict()` by default. The `ed25519-dalek` crate applies batchable double-scalar multiplication with no variable-time branches. |
 | ML-DSA-65 | `ml-dsa` v0.1 (FIPS 204) | ✅ Yes | ML-DSA (FIPS 204) is designed to be side-channel resistant. The `ml-dsa` crate uses `std::simd` for constant-time operations on all supported platforms. |
-| Composite | Axiom wrapper over both | ✅ Yes | Each component (Ed25519 + ML-DSA-65) is independently constant-time. No early-exit on first signature failure. |
+| Composite | verax wrapper over both | ✅ Yes | Each component (Ed25519 + ML-DSA-65) is independently constant-time. No early-exit on first signature failure. |
 
 **Finding:** No variable-time signature verification paths identified.
 
@@ -45,7 +45,7 @@
 
 ### Overall Assessment
 
-The Axiom Protocol core library has:
+The verax Protocol core library has:
 - **No `unsafe` code** (`#![deny(unsafe_code)]`)
 - **No variable-time signature verification**
 - **No secret-dependent branching in CBOR parsing** (all branches are on public metadata)

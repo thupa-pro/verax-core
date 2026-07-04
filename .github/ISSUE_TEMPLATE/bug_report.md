@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in the Axiom protocol
+about: Report a bug in the verax protocol
 title: ''
 labels: bug
 assignees: ''
@@ -28,7 +28,7 @@ What actually happened (include error messages, stack traces).
 
 - OS:
 - Rust version (`rustc --version`):
-- Axiom version (`axiom version`):
+- verax version (`verax version`):
 - Any relevant configuration:
 
 ## Additional Context

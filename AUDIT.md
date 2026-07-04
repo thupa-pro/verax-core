@@ -1,6 +1,6 @@
-# Axiom Protocol Hardening Audit – The Unforgiving Verifier
+# verax Protocol Hardening Audit – The Unforgiving Verifier
 
-**Role:** You are the world's foremost cryptographic protocol auditor, hired to ensure that an implementation of the Axiom Protocol is mathematically sound, fully compliant, and hardened against all specified threats. The implementation already exists; your job is to prove – with concrete evidence – that it fulfills every promise of the specification, or to expose every deviation.
+**Role:** You are the world's foremost cryptographic protocol auditor, hired to ensure that an implementation of the verax Protocol is mathematically sound, fully compliant, and hardened against all specified threats. The implementation already exists; your job is to prove – with concrete evidence – that it fulfills every promise of the specification, or to expose every deviation.
 
 **Instructions:**
 For each numbered check below, you must:
@@ -10,11 +10,11 @@ For each numbered check below, you must:
 3. If the answer is No or evidence is missing, classify the gap as **CRITICAL** (breaks interoperability/security), **HIGH** (deviates from normative requirements), or **LOW** (minor edge case).
 4. Never rely on assumptions or verbal guarantees; only code and test artifacts count.
 
-Proceed through every check in order, never skipping. Only when all checks pass can the implementation be declared "Axiom‑true".
+Proceed through every check in order, never skipping. Only when all checks pass can the implementation be declared "verax‑true".
 
 ---
 
-## 1. Deterministic CBOR (The Axiom of Immutable Bytes)
+## 1. Deterministic CBOR (The verax of Immutable Bytes)
 
 ### 1.1 Tag Prohibition
 Is every CBOR encoder/decoder path for the core payload (the verity-payload map) hardened to reject any CBOR tag (major type 6)? Show the exact line(s) that cause a hard failure (error code `NonCanonicalEncoding`) when a tag is encountered.
@@ -63,7 +63,7 @@ Are all statements serialised as a tagged COSE_Sign1 CBOR structure (tag 98)? Ve
 For algorithm -8, does the signing/verification library use Ed25519Pure (RFC 8032) without pre‑hashing? Confirm that the context string is empty.
 
 ### 2.5 Composite Signature Construction
-For algorithm -39, is the classical part computed with Ed25519ph using the context string `"Axiom-Provenance-v1"`? Is the ML‑DSA‑65 signature appended directly to the Ed25519 signature, with no delimiters? Show the concatenation code.
+For algorithm -39, is the classical part computed with Ed25519ph using the context string `"verax-Provenance-v1"`? Is the ML‑DSA‑65 signature appended directly to the Ed25519 signature, with no delimiters? Show the concatenation code.
 
 ### 2.6 ML‑DSA‑65 Parameter Pinning
 Are the ML‑DSA‑65 parameters frozen to FIPS 204 Level 3? Validate that the public key length is exactly 1952 bytes and the signature length exactly 3309 bytes by checking the key‑gen and signature verification functions.
@@ -157,7 +157,7 @@ Is there an architectural gate that prevents plaintext personal data from being 
 Is there a dedicated "shred" function that securely overwrites the symmetric key (XChaCha20‑Poly1305) in memory and then deletes it from storage? Show the zeroisation code.
 
 ### 6.3 Consent Receipt
-Are consent receipts implemented as Axiom statements where the subject is `BLAKE3(encrypted_consent_document)` and the extensions map contains `BLAKE3(human_readable_terms)`? Provide an example.
+Are consent receipts implemented as verax statements where the subject is `BLAKE3(encrypted_consent_document)` and the extensions map contains `BLAKE3(human_readable_terms)`? Provide an example.
 
 ### 6.4 Metadata Leakage Awareness
 Does the design document acknowledge that even ciphertext hashes and timestamps can constitute metadata under GDPR and suggest minimisation strategies?
@@ -227,4 +227,4 @@ Confirm that adding a new private‑use predicate (ID ≥ 100) to an extension d
 
 ## Final Certification
 
-If all checks pass with documented evidence, you may declare the implementation **Axiom‑True v1.0**. If any CRITICAL or HIGH gaps remain, the audit fails until they are resolved.
+If all checks pass with documented evidence, you may declare the implementation **verax‑True v1.0**. If any CRITICAL or HIGH gaps remain, the audit fails until they are resolved.

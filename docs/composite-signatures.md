@@ -1,6 +1,6 @@
 # Composite Signatures (Ed25519 + ML-DSA-65)
 
-Axiom supports composite signatures that combine Ed25519 (classical) and ML-DSA-65 (post-quantum, FIPS 204) to provide dual-algorithm security.
+verax supports composite signatures that combine Ed25519 (classical) and ML-DSA-65 (post-quantum, FIPS 204) to provide dual-algorithm security.
 
 ## Algorithm
 

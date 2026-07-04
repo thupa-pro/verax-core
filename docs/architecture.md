@@ -2,17 +2,17 @@
 
 ## Overview
 
-Axiom is organized as a Rust workspace with five crates and additional binding layers:
+verax is organized as a Rust workspace with five crates and additional binding layers:
 
 ```
-axiom/
+verax/
 ├── crates/
-│   ├── axiom-core/          # Core protocol library (no_std)
-│   ├── axiom-cli/           # Command-line interface
-│   ├── axiom-core-ffi/      # C FFI (for Go and other languages)
-│   ├── axiom-core-python/   # Python bindings (PyO3)
-│   ├── axiom-core-node/     # Node.js bindings (napi-rs)
-│   └── axiom-core-go/       # Go bindings (cgo)
+│   ├── verax-core/          # Core protocol library (no_std)
+│   ├── verax-cli/           # Command-line interface
+│   ├── verax-core-ffi/      # C FFI (for Go and other languages)
+│   ├── verax-core-python/   # Python bindings (PyO3)
+│   ├── verax-core-node/     # Node.js bindings (napi-rs)
+│   └── verax-core-go/       # Go bindings (cgo)
 ├── formal/
 │   ├── tlaplus/             # TLA+ specification
 │   ├── lean4/               # Lean 4 proofs
@@ -22,7 +22,7 @@ axiom/
 └── examples/                # Usage examples
 ```
 
-## Core Crate (`axiom-core`)
+## Core Crate (`verax-core`)
 
 The core crate is `no_std` with `alloc`. It provides:
 
@@ -62,7 +62,7 @@ Artifact → BLAKE3 hash → AxiomPayload (subject + predicate + metadata)
 ### Crate Dependency Graph
 
 ```
-axiom-core (no_std)
+verax-core (no_std)
     ├── ed25519-dalek
     ├── ml-dsa (ML-DSA-65)
     ├── blake3
@@ -106,7 +106,7 @@ Verification uses the `TrustStore` trait, allowing different trust models:
 
 ## CLI Architecture
 
-The CLI has 26 subcommands organized under `crates/axiom-cli/src/commands/`:
+The CLI has 26 subcommands organized under `crates/verax-cli/src/commands/`:
 
 ```
 init          — Create a new project

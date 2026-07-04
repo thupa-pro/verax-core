@@ -1,0 +1,162 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Verax Protocol Compliance Bot — Daily Scheduled Audit
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Runs every day at 06:00 UTC. Checks 5 external dependencies for drift:
+#   1. CBOR Library Audit      — pinned vs latest, deterministic test suite
+#   2. BLAKE3 Hash Monitor     — version bump, security advisories
+#   3. CT Log Key Rotation     — trusted keys vs Google's CT log list
+#   4. Specification Diff      — predicates, error codes, CDDL vs impl
+#   5. Cross-Implementation    — interop test against second implementation
+#
+# On violation: files a GitHub issue with severity and details.
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+name: Verax Protocol Compliance Bot
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # daily at 06:00 UTC
+  workflow_dispatch:        # manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: /tmp/cargo-target
+  RUST_BACKTRACE: 1
+
+jobs:
+  compliance-bot:
+    runs-on: ubuntu-22.04
+    outputs:
+      exit_code: ${{ steps.run-bot.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libssl-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run all 5 compliance checks
+        id: run-bot
+        run: |
+          python3 scripts/compliance_bot.py 2>&1
+          exit_code=$?
+          echo "exit_code=${exit_code}" >> $GITHUB_OUTPUT
+          echo "### Compliance Bot Summary" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/compliance-report.json >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload compliance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report-${{ github.run_id }}
+          path: /tmp/compliance-report.json
+          retention-days: 90
+
+      - name: File issue on critical violation
+        if: steps.run-bot.outputs.exit_code == '2'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('/tmp/compliance-report.json', 'utf8'));
+            const findings = Object.values(report).flatMap(s => s.findings || []);
+            const criticalFindings = findings.filter(f => f.severity === 'critical');
+
+            const body = [
+              '## Compliance Violation — Critical',
+              '',
+              `This issue was auto-filed by the [Compliance Bot](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`,
+              '',
+              '### Critical Alerts',
+              '',
+              ...criticalFindings.map(f =>
+                `- **${f.check}**: ${f.message}`
+              ),
+              '',
+              '### Required Action',
+              '',
+              'Immediate remediation required. Assign SRE/security engineer.',
+              '',
+              `[View workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+            ];
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Compliance Bot: ${criticalFindings.length} critical violation(s) detected — ${new Date().toISOString().slice(0, 10)}`,
+              labels: ['compliance-bot', 'critical'],
+              body: body.join('\n'),
+            });
+
+      - name: File issue on warning violation
+        if: steps.run-bot.outputs.exit_code == '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('/tmp/compliance-report.json', 'utf8'));
+            const findings = Object.values(report).flatMap(s => s.findings || []);
+            const warningFindings = findings.filter(f => f.severity === 'warning');
+
+            const body = [
+              '## Compliance Bot — Warning',
+              '',
+              `This issue was auto-filed by the [Compliance Bot](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`,
+              '',
+              '### Warnings',
+              '',
+              ...warningFindings.map(f =>
+                `- **${f.check}**: ${f.message}`
+              ),
+              '',
+              '### Required Action',
+              '',
+              'Review and either fix or acknowledge within 7 days.',
+              '',
+              `[View workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+            ];
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Compliance Bot: ${warningFindings.length} warning(s) detected — ${new Date().toISOString().slice(0, 10)}`,
+              labels: ['compliance-bot', 'warning'],
+              body: body.join('\n'),
+            });
+
+  # ── Slack / Teams notification (optional) ──────────────────────────
+  notify:
+    needs: compliance-bot
+    if: always() && needs.compliance-bot.outputs.exit_code != '0'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Notify Slack
+        if: secrets.SLACK_WEBHOOK_URL
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Verax Compliance Bot: ${{ needs.compliance-bot.outputs.exit_code == '2' && '🚨 CRITICAL' || '⚠️ WARNING' }} violation detected. See https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+
+      - name: Notify Teams
+        if: secrets.TEAMS_WEBHOOK_URL
+        uses: 8BitJonny/action-send-teams-notification@v2
+        with:
+          webhook_url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          title: "Verax Compliance Bot — ${{ needs.compliance-bot.outputs.exit_code == '2' && '🚨 CRITICAL' || '⚠️ WARNING' }}"
+          message: "Violation detected. See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

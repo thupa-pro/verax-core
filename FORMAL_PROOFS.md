@@ -1,4 +1,4 @@
-# Axiom Protocol v3.0 — Formal Proofs Map
+# verax Protocol v3.0 — Formal Proofs Map
 
 This document maps every formal theorem to its corresponding Whitepaper
 Invariant (I-number) and provides the verification status.
@@ -34,7 +34,7 @@ java -cp tla2tools.jar tlc2.TLC formal/tlaplus/AxiomDAG.tla -config formal/tlapl
 
 ---
 
-## Part 2: Kani Rust Verifier (`crates/axiom-core/src/`)
+## Part 2: Kani Rust Verifier (`crates/verax-core/src/`)
 
 | Harness | Invariant | Status | Description |
 |---------|-----------|--------|-------------|
@@ -55,9 +55,9 @@ java -cp tla2tools.jar tlc2.TLC formal/tlaplus/AxiomDAG.tla -config formal/tlapl
 ```bash
 # Requires Kani verifier (cargo install kani-verifier)
 # Then run individual harnesses:
-cargo kani --harness check_cbor_roundtrip_minimal -p axiom-core
-cargo kani --harness check_lineage_monotonicity_forward -p axiom-core
-cargo kani -p axiom-core
+cargo kani --harness check_cbor_roundtrip_minimal -p verax-core
+cargo kani --harness check_lineage_monotonicity_forward -p verax-core
+cargo kani -p verax-core
 ```
 
 ---
@@ -105,7 +105,7 @@ lake build
 
 ---
 
-## Part 4: Coq Core Invariants (`crates/axiom-core/coq/`)
+## Part 4: Coq Core Invariants (`crates/verax-core/coq/`)
 
 | Theorem | Invariant | Status | File |
 |---------|-----------|--------|------|
@@ -124,7 +124,7 @@ proved in the Rust impl by integration tests and formally via Lean.
 ### Running Coq
 ```bash
 # Requires coqc
-coqc crates/axiom-core/coq/AxiomCore.v
+coqc crates/verax-core/coq/AxiomCore.v
 ```
 
 ---

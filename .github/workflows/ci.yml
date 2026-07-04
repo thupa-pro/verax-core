@@ -53,7 +53,7 @@ jobs:
           toolchain: stable
 
       - name: Build FFI shared library
-        run: cargo build --release -p axiom-core-ffi
+        run: cargo build --release -p verax-core-ffi
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -62,16 +62,16 @@ jobs:
 
       - name: Copy shared library for Go
         run: |
-          mkdir -p /tmp/axiom-go-fresh
-          cp $CARGO_TARGET_DIR/release/libaxiom_core_ffi.so /tmp/axiom-go-fresh/
-          cp crates/axiom-core-ffi/include/axiom_core.h /tmp/axiom-go-fresh/
+          mkdir -p /tmp/verax-go-fresh
+          cp $CARGO_TARGET_DIR/release/libverax_core_ffi.so /tmp/verax-go-fresh/
+          cp crates/verax-core-ffi/include/verax_core.h /tmp/verax-go-fresh/
 
       - name: Run Go tests
         run: |
-          export CGO_LDFLAGS="-L/tmp/axiom-go-fresh -laxiom_core_ffi -lm -ldl"
-          export CGO_CFLAGS="-I/tmp/axiom-go-fresh"
-          export LD_LIBRARY_PATH="/tmp/axiom-go-fresh:$LD_LIBRARY_PATH"
-          cd crates/axiom-core-go && go test -v ./...
+          export CGO_LDFLAGS="-L/tmp/verax-go-fresh -lverax_core_ffi -lm -ldl"
+          export CGO_CFLAGS="-I/tmp/verax-go-fresh"
+          export LD_LIBRARY_PATH="/tmp/verax-go-fresh:$LD_LIBRARY_PATH"
+          cd crates/verax-core-go && go test -v ./...
 
   cli-tests:
     runs-on: ubuntu-22.04
@@ -85,34 +85,34 @@ jobs:
           toolchain: stable
 
       - name: Build CLI
-        run: cargo build --release -p axiom-cli
+        run: cargo build --release -p verax-cli
 
       - name: Test CLI help and version
         run: |
-          $CARGO_TARGET_DIR/release/axiom --help
-          $CARGO_TARGET_DIR/release/axiom version
+          $CARGO_TARGET_DIR/release/verax --help
+          $CARGO_TARGET_DIR/release/verax version
 
       - name: Test CLI init, key, sign, verify chain
         run: |
           cd /tmp
           mkdir -p ci-cli-test && cd ci-cli-test
           echo "CI test artifact" > artifact.txt
-          /tmp/cargo-target/release/axiom init
-          /tmp/cargo-target/release/axiom key generate ci-key
-          /tmp/cargo-target/release/axiom hash artifact.txt --json
-          /tmp/cargo-target/release/axiom sign artifact.txt --key .axiom/keys/ci-key.key --out test.axm
-          PUBKEY=$(grep public .axiom/keys/ci-key.key | cut -d' ' -f3)
-          /tmp/cargo-target/release/axiom verify test.axm --pubkey "$PUBKEY"
-          /tmp/cargo-target/release/axiom inspect test.axm
-          /tmp/cargo-target/release/axiom lint test.axm
-          /tmp/cargo-target/release/axiom doctor
-          /tmp/cargo-target/release/axiom test
+          /tmp/cargo-target/release/verax init
+          /tmp/cargo-target/release/verax key generate ci-key
+          /tmp/cargo-target/release/verax hash artifact.txt --json
+          /tmp/cargo-target/release/verax sign artifact.txt --key .verax/keys/ci-key.key --out test.axm
+          PUBKEY=$(grep public .verax/keys/ci-key.key | cut -d' ' -f3)
+          /tmp/cargo-target/release/verax verify test.axm --pubkey "$PUBKEY"
+          /tmp/cargo-target/release/verax inspect test.axm
+          /tmp/cargo-target/release/verax lint test.axm
+          /tmp/cargo-target/release/verax doctor
+          /tmp/cargo-target/release/verax test
 
       - name: Built-in CLI test suite
         run: |
-          /tmp/cargo-target/release/axiom test
-          /tmp/cargo-target/release/axiom doctor
-          /tmp/cargo-target/release/axiom benchmark
+          /tmp/cargo-target/release/verax test
+          /tmp/cargo-target/release/verax doctor
+          /tmp/cargo-target/release/verax benchmark
 
   python-conformance:
     runs-on: ubuntu-22.04
@@ -136,7 +136,7 @@ jobs:
           python-version: '3.11'
 
       - name: Build shared library
-        run: cargo build --release -p axiom-core-ffi
+        run: cargo build --release -p verax-core-ffi
 
       - name: Run Python conformance tests
         run: |

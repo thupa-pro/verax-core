@@ -1,15 +1,15 @@
-# Key Rotation in the Axiom Protocol
+# Key Rotation in the verax Protocol
 
 ## Motivation
 
 Signing keys have a finite lifespan. Key rotation allows an entity to
 transition from one signing key to another while maintaining a verifiable
-chain of custody.  This spec defines how key rotation works in the Axiom
+chain of custody.  This spec defines how key rotation works in the verax
 protocol at the COSE/payload layer.
 
 ## Approach: Rotation Is a Statement
 
-A key rotation IS an Axiom statement.  There is no special "ROTATE"
+A key rotation IS an verax statement.  There is no special "ROTATE"
 predicate — the existing `SUPERSEDES` predicate carries the semantics:
 
 ```
@@ -28,7 +28,7 @@ key.  This proves that the old key authorizes the new one.
 |---|---|
 | **Trust anchor** | A long-lived key pair whose public key is pre-distributed to all verifiers (e.g. embedded at application build time, or pinned via DNS / HPKP-style header). Rotation chains terminate here. |
 | **Active signing key** | The key currently used to sign statements. |
-| **Rotation statement** | An Axiom `SUPERSEDES` statement linking an active key to a predecessor. |
+| **Rotation statement** | An verax `SUPERSEDES` statement linking an active key to a predecessor. |
 
 ## Verification Flow
 
@@ -82,7 +82,7 @@ The rotation COSE is signed by the old key. A compromise of the new key
 alone does not allow an attacker to insert an unauthorized rotation.
 
 ### Auditability
-Rotation statements are standard Axiom statements. They can be anchored in
+Rotation statements are standard verax statements. They can be anchored in
 a CT log like any other statement, providing public timestamp evidence.
 
 ### Revocation transparency

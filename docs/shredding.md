@@ -1,6 +1,6 @@
 # PII Shredding
 
-Axiom provides cryptographic shredding for personally identifiable information (PII) — the "right to be forgotten" in practice.
+verax provides cryptographic shredding for personally identifiable information (PII) — the "right to be forgotten" in practice.
 
 ## Overview
 
@@ -27,7 +27,7 @@ The `commitment` is a 32-byte BLAKE3 hash. The `key` is a 32-byte `ShreddingKey`
 The commitment is computed as:
 
 ```
-commitment = BLAKE3("axiom-shred" || key_commitment || plaintext)
+commitment = BLAKE3("verax-shred" || key_commitment || plaintext)
 ```
 
 Where `key_commitment` is derived from the shredding key.
@@ -36,7 +36,7 @@ Where `key_commitment` is derived from the shredding key.
 
 The shredding module includes a formal theorem in its documentation:
 
-> **Shredding Theorem**: Given a valid commitment `comm` and a candidate `(key, plaintext)`, the verifier can check whether `comm = BLAKE3("axiom-shred" || key_commit || plaintext)`. If the match holds, the (key, plaintext) pair is authentic. The commitment alone leaks no information about the plaintext (hiding) and cannot be opened to a different plaintext (binding).
+> **Shredding Theorem**: Given a valid commitment `comm` and a candidate `(key, plaintext)`, the verifier can check whether `comm = BLAKE3("verax-shred" || key_commit || plaintext)`. If the match holds, the (key, plaintext) pair is authentic. The commitment alone leaks no information about the plaintext (hiding) and cannot be opened to a different plaintext (binding).
 
 ## Metadata Leakage Awareness
 

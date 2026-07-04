@@ -1,0 +1,21 @@
+[package]
+name = "verax-core-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Node.js bindings for Verax Protocol Core (napi-rs)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+verax-core = { path = "../verax-core" }
+napi = { version = "2", features = ["default"] }
+napi-derive = "2"
+ed25519-dalek = { version = "2", default-features = false }
+ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc"] }
+sha2 = "0.10"
+hex = "0.4"
+
+[build-dependencies]
+napi-build = "2"

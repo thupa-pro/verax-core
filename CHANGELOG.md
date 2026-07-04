@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Full protocol verification**: `verify_statement_with_warnings` checks signature, lineage, key rotation, timestamps, revocation, and CT anchors
 - **TrustStore trait**: Pluggable key resolution, chain caching, and revocation checking
 - **PII shredding**: AEAD encryption + BLAKE3 commitment for right-to-be-forgotten compliance
-- **CLI**: `axiom init`, `sign`, `verify`, `inspect`, `lint`, `graph`, `key`, `hash`, `doctor`, `benchmark`, `tutorial`, `test`
+- **CLI**: `verax init`, `sign`, `verify`, `inspect`, `lint`, `graph`, `key`, `hash`, `doctor`, `benchmark`, `tutorial`, `test`
 - **CLI `verify`**: Full protocol verification with `--chain-dir`, `--trusted-log-key`, `--revocation-cache`
 - **CLI `sign`**: `--composite`, `--ml-dsa-key`, `--ct-anchor-file` for post-quantum and CT-anchored signing
 - **Python bindings**: `verify_ed25519`, `verify_composite`, `verify_full`, `sign_ed25519`, `sign_composite`, `encrypt`, `decrypt`, `shredding_commit_fn`, `encode_payload`, `decode_payload`
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Ed25519 public key extraction from COSE KID for cross-platform verification
-- Ephemeral key auto-generation with proper storage in `.axiom/keys/`
+- Ephemeral key auto-generation with proper storage in `.verax/keys/`
 - Zero `unsafe` code in core library (`#![deny(unsafe_code)]`)
 
 ### Notes

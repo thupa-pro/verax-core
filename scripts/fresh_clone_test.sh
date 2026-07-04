@@ -17,7 +17,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/opencode/cargo-target}"
 mkdir -p "${CARGO_TARGET_DIR}"
 
 echo "============================================"
-echo "  Axiom Protocol — Fresh Clone Test"
+echo "  Verax Protocol — Fresh Clone Test"
 echo "============================================"
 echo "Project root: ${PROJECT_ROOT}"
 echo ""
@@ -53,9 +53,9 @@ echo "  Copied repository to ${TMPDIR}/repo"
 echo ""
 
 # Step 2: Build FFI (no env vars needed)
-echo "[STEP 2] Building Rust FFI (libaxiom_core_ffi)..."
+echo "[STEP 2] Building Rust FFI (libverax_core_ffi)..."
 env -i PATH="${PATH}" HOME="${HOME}" CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
-    cargo build --release -p axiom-core-ffi
+    cargo build --release -p verax-core-ffi
 echo "  FFI build complete."
 echo ""
 
@@ -69,23 +69,23 @@ echo ""
 # Step 4: Run Go FFI tests
 echo "[STEP 4] Running Go FFI test suite..."
 # Copy .so and headers for Go (needs them in same dir due to FUSE/noexec)
-GO_TEST_DIR="${TMPDIR}/repo/crates/axiom-core-go"
-cp "${CARGO_TARGET_DIR}/release/libaxiom_core_ffi.so" "${GO_TEST_DIR}/"
-cp "${TMPDIR}/repo/crates/axiom-core-ffi/include/axiom_core.h" "${GO_TEST_DIR}/"
+GO_TEST_DIR="${TMPDIR}/repo/crates/verax-core-go"
+cp "${CARGO_TARGET_DIR}/release/libverax_core_ffi.so" "${GO_TEST_DIR}/"
+cp "${TMPDIR}/repo/crates/verax-core-ffi/include/verax_core.h" "${GO_TEST_DIR}/"
 cp "${TMPDIR}/repo/test-vectors/vectors/conformance_suite.json" "${GO_TEST_DIR}/"
 
 # Go tests must run from /tmp copy due to FUSE file locking issues
-GO_TMP_DIR="/tmp/axiom-go-fresh"
+GO_TMP_DIR="/tmp/verax-go-fresh"
 mkdir -p "${GO_TMP_DIR}"
 cp "${GO_TEST_DIR}/go.mod" "${GO_TMP_DIR}/"
 cp "${GO_TEST_DIR}/go.sum" "${GO_TMP_DIR}/" 2>/dev/null || true
 cp "${GO_TEST_DIR}"/*.go "${GO_TMP_DIR}/"
-cp "${GO_TEST_DIR}/libaxiom_core_ffi.so" "${GO_TMP_DIR}/"
-cp "${GO_TEST_DIR}/axiom_core.h" "${GO_TMP_DIR}/"
+cp "${GO_TEST_DIR}/libverax_core_ffi.so" "${GO_TMP_DIR}/"
+cp "${GO_TEST_DIR}/verax_core.h" "${GO_TMP_DIR}/"
 cp "${GO_TEST_DIR}/conformance_suite.json" "${GO_TMP_DIR}/"
 
 export LD_LIBRARY_PATH="${GO_TMP_DIR}:${LD_LIBRARY_PATH:-}"
-export CGO_LDFLAGS="-L${GO_TMP_DIR} -laxiom_core_ffi -lm -ldl"
+export CGO_LDFLAGS="-L${GO_TMP_DIR} -lverax_core_ffi -lm -ldl"
 export CGO_CFLAGS="-I${GO_TMP_DIR}"
 
 env -i \
@@ -115,17 +115,17 @@ echo "  Vectors generated."
 echo ""
 
 # Step 7: Build CLI
-echo "[STEP 7] Building axiom-cli..."
+echo "[STEP 7] Building verax-cli..."
 env -i PATH="${PATH}" HOME="${HOME}" CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
-    cargo build --release -p axiom-cli
+    cargo build --release -p verax-cli
 echo "  CLI build complete."
 echo ""
 
 # Step 8: Generate demo.axm
 echo "[STEP 8] Generating demo.axm..."
-echo "Axiom Protocol demo artifact" > /tmp/demo_artifact.txt
+echo "Verax Protocol demo artifact" > /tmp/demo_artifact.txt
 env -i PATH="${PATH}" HOME="${HOME}" \
-    "${CARGO_TARGET_DIR}/release/axiom" sign /tmp/demo_artifact.txt --out demo.axm
+    "${CARGO_TARGET_DIR}/release/verax" sign /tmp/demo_artifact.txt --out demo.axm
 echo "  demo.axm generated."
 echo ""
 
@@ -133,7 +133,7 @@ echo ""
 echo "[STEP 9] Verifying demo.axm..."
 set +e
 VERIFY_OUTPUT=$(env -i PATH="${PATH}" HOME="${HOME}" \
-    "${CARGO_TARGET_DIR}/release/axiom" verify demo.axm 2>&1)
+    "${CARGO_TARGET_DIR}/release/verax" verify demo.axm 2>&1)
 VERIFY_EXIT=$?
 set -e
 echo "${VERIFY_OUTPUT}"

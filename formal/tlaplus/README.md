@@ -1,6 +1,6 @@
 # TLA+ Specification
 
-This directory contains a TLA+ specification of the Axiom DAG protocol.
+This directory contains a TLA+ specification of the verax DAG protocol.
 
 ## Files
 
