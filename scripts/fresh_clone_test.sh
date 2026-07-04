@@ -77,6 +77,8 @@ cp "${TMPDIR}/repo/test-vectors/vectors/conformance_suite.json" "${GO_TEST_DIR}/
 # Go tests must run from /tmp copy due to FUSE file locking issues
 GO_TMP_DIR="/tmp/axiom-go-fresh"
 mkdir -p "${GO_TMP_DIR}"
+cp "${GO_TEST_DIR}/go.mod" "${GO_TMP_DIR}/"
+cp "${GO_TEST_DIR}/go.sum" "${GO_TMP_DIR}/" 2>/dev/null || true
 cp "${GO_TEST_DIR}"/*.go "${GO_TMP_DIR}/"
 cp "${GO_TEST_DIR}/libaxiom_core_ffi.so" "${GO_TMP_DIR}/"
 cp "${GO_TEST_DIR}/axiom_core.h" "${GO_TMP_DIR}/"
