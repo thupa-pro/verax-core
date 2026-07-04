@@ -1,6 +1,5 @@
 target/
 .axiom/
-.verax/keys/
 *.axm
 .DS_Store
 *.swp
