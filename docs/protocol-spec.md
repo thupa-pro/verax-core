@@ -1,8 +1,8 @@
 # Protocol Specification
 
-## AxiomPayload CBOR Format
+## VeraxPayload CBOR Format
 
-The core data structure is the `AxiomPayload`, encoded as deterministic CBOR:
+The core data structure is the `VeraxPayload`, encoded as deterministic CBOR:
 
 ### Fields
 

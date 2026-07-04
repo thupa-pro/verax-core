@@ -109,11 +109,11 @@ lake build
 
 | Theorem | Invariant | Status | File |
 |---------|-----------|--------|------|
-| `cbor_determinism` | I1 | ✅ Proven | `AxiomCore.v` |
-| `claim_lemma` | I1 | 🔶 Skeleton | `AxiomCore.v` |
-| `dag_acyclic` | I6 | 🔶 Skeleton | `AxiomCore.v` |
-| `revoke_issuer_match` | I11 | 🔶 Skeleton | `AxiomCore.v` |
-| `axiom_core_invariants` | All | 🔶 Skeleton | `AxiomCore.v` |
+| `cbor_determinism` | I1 | ✅ Proven | `VeraxCore.v` |
+| `claim_lemma` | I1 | 🔶 Skeleton | `VeraxCore.v` |
+| `dag_acyclic` | I6 | 🔶 Skeleton | `VeraxCore.v` |
+| `revoke_issuer_match` | I11 | 🔶 Skeleton | `VeraxCore.v` |
+| `verax_core_invariants` | All | 🔶 Skeleton | `VeraxCore.v` |
 
 **Note:** The Coq model targets v3.0 with composite signatures, deterministic CBOR,
 and CT anchoring. The 3 `admit` blocks correspond to properties that depend on
@@ -124,7 +124,7 @@ proved in the Rust impl by integration tests and formally via Lean.
 ### Running Coq
 ```bash
 # Requires coqc
-coqc crates/verax-core/coq/AxiomCore.v
+coqc crates/verax-core/coq/VeraxCore.v
 ```
 
 ---
@@ -156,7 +156,7 @@ coqc crates/verax-core/coq/AxiomCore.v
    have been resolved. The proof is fully mechanized with zero remaining `sorry`
    axioms. See `SerializationInjectivity.lean` for details.
 
-4. **Coq `admit` blocks:** The 3 `admit` blocks in `AxiomCore.v` depend on
+4. **Coq `admit` blocks:** The 3 `admit` blocks in `VeraxCore.v` depend on
    functional correctness properties of the Rust CBOR codec (CLAIM lemma),
    BLAKE3 collision resistance (DAG acyclicity), and COSE KID matching
    (revoke issuer match). These are proven via Lean 4 (I1) and Rust integration

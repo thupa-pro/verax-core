@@ -183,7 +183,7 @@ Does the verifier explicitly validate that the payload CBOR is strictly determin
 ## 8. FFI, Bindings & Conformance
 
 ### 8.1 C FFI Exact Match
-Do the exported C functions (`axiom_verify_ed25519`, etc.) match the signatures in the header exactly, including the `axiom_free` call for output buffers? Show the header and a smoke test.
+Do the exported C functions (`verax_verify_ed25519`, etc.) match the signatures in the header exactly, including the `verax_free` call for output buffers? Show the header and a smoke test.
 
 ### 8.2 Conformance Test Vectors
 Does the implementation pass every vector in the official `test_vectors.json` file? Provide the test run output showing 100% success.

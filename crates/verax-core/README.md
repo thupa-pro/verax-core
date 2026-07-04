@@ -7,11 +7,11 @@ Core protocol library for the verax provenance protocol.
 ## Usage
 
 ```rust
-use axiom_core::{AxiomPayload, Predicate, Statement, hash::blake3};
+use verax_core::{VeraxPayload, Predicate, Statement, hash::blake3};
 
 // Create a payload
 let artifact_hash = blake3(b"Hello, verax!");
-let payload = AxiomPayload::new(artifact_hash, Predicate::Attests);
+let payload = VeraxPayload::new(artifact_hash, Predicate::Attests);
 
 // Sign with Ed25519
 let sk = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
@@ -19,12 +19,12 @@ let stmt = Statement::sign_ed25519(&payload, &sk).unwrap();
 
 // Verify
 let vk = sk.verifying_key();
-let decoded = axiom_core::verify_statement_ed25519(stmt.to_bytes(), &vk).unwrap();
+let decoded = verax_core::verify_statement_ed25519(stmt.to_bytes(), &vk).unwrap();
 ```
 
 ## Key Types
 
-- [`AxiomPayload`] — The signed data structure (subject, predicate, optional fields)
+- [`VeraxPayload`] — The signed data structure (subject, predicate, optional fields)
 - [`Statement`] — A COSE_Sign1 signed statement
 - [`TrustStore`] — Trait for key resolution, chain caching, revocation checking
 - [`CompositePublicKey`] — Ed25519 + ML-DSA-65 hybrid public key

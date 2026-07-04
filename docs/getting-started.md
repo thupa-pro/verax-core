@@ -106,10 +106,10 @@ verax-core = { git = "https://github.com/anomalyco/verax-core.git" }
 Example:
 
 ```rust
-use axiom_core::{AxiomPayload, Predicate, Statement, hash::blake3};
+use verax_core::{VeraxPayload, Predicate, Statement, hash::blake3};
 use rand::rngs::OsRng;
 
-let payload = AxiomPayload::new(blake3(b"hello"), Predicate::Attests);
+let payload = VeraxPayload::new(blake3(b"hello"), Predicate::Attests);
 let sk = ed25519_dalek::SigningKey::generate(&mut OsRng);
 let stmt = Statement::sign_ed25519(&payload, &sk)?;
 ```

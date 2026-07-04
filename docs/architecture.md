@@ -31,7 +31,7 @@ The core crate is `no_std` with `alloc`. It provides:
 ```
 src/
 ├── lib.rs          # Crate root, re-exports
-├── cbor.rs         # Deterministic CBOR: AxiomPayload, encoding, decoding
+├── cbor.rs         # Deterministic CBOR: VeraxPayload, encoding, decoding
 ├── cose.rs         # COSE_Sign1: signing, verification, composite
 ├── ct.rs           # CT anchoring: TemporalAnchor, LogInclusionProof, SignedTreeHead
 ├── statement.rs    # Statement: sign, verify, anchor
@@ -47,7 +47,7 @@ src/
 ### Data Flow
 
 ```
-Artifact → BLAKE3 hash → AxiomPayload (subject + predicate + metadata)
+Artifact → BLAKE3 hash → VeraxPayload (subject + predicate + metadata)
                                        ↓
                               Statement::sign_ed25519 / sign_composite
                                        ↓

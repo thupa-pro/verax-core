@@ -6,7 +6,7 @@ verax supports composite signatures that combine Ed25519 (classical) and ML-DSA-
 
 The composite signing algorithm works as follows:
 
-1. **Input**: `payload_bytes` (CBOR-encoded `AxiomPayload`)
+1. **Input**: `payload_bytes` (CBOR-encoded `VeraxPayload`)
 2. **Ed25519 sign**: `sigma_ed = Sign_ed25519(sk_ed, payload_bytes)`
 3. **ML-DSA-65 sign**: `sigma_ml = Sign_ml-dsa-65(sk_ml, payload_bytes)`
 4. **Composite signature**: The two signatures are concatenated: `sigma_ed || sigma_ml`
