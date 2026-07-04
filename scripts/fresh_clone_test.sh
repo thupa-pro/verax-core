@@ -123,18 +123,22 @@ echo ""
 
 # Step 8: Generate demo.axm
 echo "[STEP 8] Generating demo.axm..."
+echo "Axiom Protocol demo artifact" > /tmp/demo_artifact.txt
 env -i PATH="${PATH}" HOME="${HOME}" \
-    "${CARGO_TARGET_DIR}/release/axiom-cli" generate demo.axm
+    "${CARGO_TARGET_DIR}/release/axiom" sign /tmp/demo_artifact.txt --out demo.axm
 echo "  demo.axm generated."
 echo ""
 
 # Step 9: Verify demo.axm
 echo "[STEP 9] Verifying demo.axm..."
+set +e
 VERIFY_OUTPUT=$(env -i PATH="${PATH}" HOME="${HOME}" \
-    "${CARGO_TARGET_DIR}/release/axiom-cli" verify demo.axm 2>&1)
+    "${CARGO_TARGET_DIR}/release/axiom" verify demo.axm 2>&1)
+VERIFY_EXIT=$?
+set -e
 echo "${VERIFY_OUTPUT}"
 
-if echo "${VERIFY_OUTPUT}" | grep -q "PASS"; then
+if [ "$VERIFY_EXIT" -eq 0 ]; then
     echo ""
     echo "============================================"
     echo "  ALL VERIFICATION SUITES PASS"
