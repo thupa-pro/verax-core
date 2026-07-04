@@ -110,18 +110,20 @@ import os as _os
 _script_dir = _os.path.dirname(_os.path.abspath(__file__))
 _project_root = _os.path.dirname(_script_dir)
 COMPOSITE_VECTORS = []
-with open(_os.path.join(_project_root, "tests", "test_vectors.json")) as _f:
-    _existing = _json.load(_f)
-    for _v in _existing["vectors"]:
-        if "composite_cose_hex" in _v:
-            COMPOSITE_VECTORS.append({
-                "name": _v["name"],
-                "is_valid": True,
-                "signature_alg": "composite(-8, -39)",
-                "payload_cbor_hex": _v["payload_cbor_hex"],
-                "composite_cose_hex": _v["composite_cose_hex"],
-                "composite_pk_hex": _v["composite_pk_hex"],
-            })
+_tv_path = _os.path.join(_project_root, "test-vectors", "vectors", "test_vectors.json")
+if _os.path.exists(_tv_path):
+    with open(_tv_path) as _f:
+        _existing = _json.load(_f)
+        for _v in _existing["vectors"]:
+            if "composite_cose_hex" in _v:
+                COMPOSITE_VECTORS.append({
+                    "name": _v["name"],
+                    "is_valid": True,
+                    "signature_alg": "composite(-8, -39)",
+                    "payload_cbor_hex": _v["payload_cbor_hex"],
+                    "composite_cose_hex": _v["composite_cose_hex"],
+                    "composite_pk_hex": _v["composite_pk_hex"],
+                })
 
 # Additional invalid vectors to reach 50+
 ADDITIONAL_INVALID = [
