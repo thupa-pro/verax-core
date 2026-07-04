@@ -888,3 +888,139 @@ fn hardened_alg_downgrade_prevention() {
         other => panic!("5h ed25519->composite store: expected Crypto(unknown key ID), got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test 6: Timestamp monotonicity audit
+// ---------------------------------------------------------------------------
+//
+// Audit requirements (IETF Forensic Protocol Audit):
+//
+// 1. The verifier accepts statements where the issuer's timestamp is earlier
+//    than the STH timestamp (the log may have seen it later) but warns if the
+//    STH is too stale (>90 days).   ── Confirmed at verify.rs:530-543:
+//    - STH.timestamp < statement.timestamp → hard error (InvalidLogProof)
+//    - delta > 90 days → Warning::StaleSth (non-fatal)
+//    - No timestamp on statement → skip
+//
+// 2. Lineage monotonicity uses issuer-provided timestamps, not the log's.
+//    ── Confirmed at verify.rs:374-383: compares cur_payload.timestamp vs
+//    prev_payload.timestamp directly. The STH timestamp is only accessed
+//    in verify_temporal_anchor (verify.rs:530) for CT anchor checking, never
+//    for lineage ordering.
+//
+// 3. Equal timestamps are only permitted when the child carries a nonce.
+//    ── Confirmed at verify.rs:380-381: cur_ts == prev_ts && nonce.is_none()
+//    → TimestampMonotonicityViolation.
+//
+// 4. Backward-jumping clock (t2 < t1) is rejected.
+//    ── Confirmed at verify.rs:377-378: cur_ts < prev_ts → TimestampMonotonicityViolation.
+//
+// 5. NO code "corrects" issuer timestamps to the log's wall clock.
+//    ── grep shows no assignment payload.timestamp = sth_timestamp or
+//    payload.timestamp = log_timestamp anywhere in the codebase.
+//    The payload timestamp flows unchanged: encode → hash → sign → verify.
+//
+// This test creates a 3-statement lineage chain where the issuer's clock
+// jumps backward between stmt2 (t=200) and stmt3 (t=150), and confirms
+// the verifier rejects the chain with TimestampMonotonicityViolation.
+
+#[test]
+fn hardened_timestamp_audit() {
+    let seed = [0x50u8; 32];
+    let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
+    let vk = sk.verifying_key();
+    let log_key = [0u8; 32];
+
+    // ── 6a. Backward-jumping clock: timestamps [100, 200, 150] ──────────
+    // stmt1: t=100, subject=X, Attests (root)
+    // stmt2: t=200, lineage=stmt1, subject=X, DerivedFrom
+    // stmt3: t=150, lineage=stmt2, subject=X, DerivedFrom  ← clock jump!
+    let mut chain6a = std::collections::BTreeMap::new();
+
+    let mut p1 = VeraxPayload::new([0x10; 32], Predicate::Attests);
+    p1.timestamp = Some(100);
+    let stmt1 = Statement::sign_ed25519(&p1, &sk).unwrap();
+    let h1 = verax_core::hash::blake3(stmt1.to_bytes());
+    chain6a.insert(h1, stmt1.to_bytes().to_vec());
+
+    let mut p2 = VeraxPayload::new([0x10; 32], Predicate::DerivedFrom);
+    p2.timestamp = Some(200);
+    p2.object = Some([0x10; 32]);
+    p2.lineage = Some(h1);
+    let stmt2 = Statement::sign_ed25519(&p2, &sk).unwrap();
+    let h2 = verax_core::hash::blake3(stmt2.to_bytes());
+    chain6a.insert(h2, stmt2.to_bytes().to_vec());
+
+    let mut p3 = VeraxPayload::new([0x10; 32], Predicate::DerivedFrom);
+    p3.timestamp = Some(150);
+    p3.object = Some([0x10; 32]);
+    p3.lineage = Some(h2);
+    let stmt3 = Statement::sign_ed25519(&p3, &sk).unwrap();
+
+    struct ChainStore6 {
+        key: ed25519_dalek::VerifyingKey,
+        log_key: [u8; 32],
+        chain: std::collections::BTreeMap<[u8; 32], Vec<u8>>,
+    }
+    impl TrustStore for ChainStore6 {
+        fn resolve_key(&self, kid: &[u8]) -> Option<ed25519_dalek::VerifyingKey> {
+            if kid == self.key.as_bytes() { Some(self.key) } else { None }
+        }
+        fn resolve_composite_key(&self, _kid: &[u8]) -> Option<CompositePublicKey> { None }
+        fn resolve_mldsa65_key(&self, _kid: &[u8]) -> Option<ml_dsa::VerifyingKey<ml_dsa::MlDsa65>> { None }
+        fn fetch_statement(&self, hash: &[u8; 32]) -> Option<Vec<u8>> { self.chain.get(hash).cloned() }
+        fn is_revoked_in_log(&self, _h: &[u8; 32], _t: u64) -> Option<bool> { Some(false) }
+        fn resolve_log_pubkey(&self, _id: &[u8; 32], _c: &[u8; 32]) -> Option<[u8; 32]> { Some(self.log_key) }
+    }
+    let store6a = ChainStore6 { key: vk, log_key, chain: chain6a };
+
+    let result = verify_statement_with_warnings(stmt3.to_bytes(), &store6a);
+    match &result {
+        Err(Error::TimestampMonotonicityViolation) => {} // expected
+        other => panic!("6a clock backward: expected TimestampMonotonicityViolation, got {other:?}"),
+    }
+
+    // ── 6b. Equal timestamps without nonce → TimestampMonotonicityViolation ──
+    let mut chain6b = std::collections::BTreeMap::new();
+    let mut pb1 = VeraxPayload::new([0x11; 32], Predicate::Attests);
+    pb1.timestamp = Some(100);
+    let stmtb1 = Statement::sign_ed25519(&pb1, &sk).unwrap();
+    let hb1 = verax_core::hash::blake3(stmtb1.to_bytes());
+    chain6b.insert(hb1, stmtb1.to_bytes().to_vec());
+
+    let mut pb2 = VeraxPayload::new([0x11; 32], Predicate::DerivedFrom);
+    pb2.timestamp = Some(100); // same as parent
+    pb2.object = Some([0x11; 32]);
+    pb2.lineage = Some(hb1);
+    // deliberately no nonce
+    let stmtb2 = Statement::sign_ed25519(&pb2, &sk).unwrap();
+
+    let store6b = ChainStore6 { key: vk, log_key, chain: chain6b };
+    let result_b = verify_statement_with_warnings(stmtb2.to_bytes(), &store6b);
+    match &result_b {
+        Err(Error::TimestampMonotonicityViolation) => {} // expected
+        other => panic!("6b equal ts no nonce: expected TimestampMonotonicityViolation, got {other:?}"),
+    }
+
+    // ── 6c. Equal timestamps WITH nonce → OK ────────────────────────────
+    let mut chain6c = std::collections::BTreeMap::new();
+    let mut pc1 = VeraxPayload::new([0x12; 32], Predicate::Attests);
+    pc1.timestamp = Some(100);
+    let stmtc1 = Statement::sign_ed25519(&pc1, &sk).unwrap();
+    let hc1 = verax_core::hash::blake3(stmtc1.to_bytes());
+    chain6c.insert(hc1, stmtc1.to_bytes().to_vec());
+
+    let mut pc2 = VeraxPayload::new([0x12; 32], Predicate::DerivedFrom);
+    pc2.timestamp = Some(100);
+    pc2.object = Some([0x12; 32]);
+    pc2.lineage = Some(hc1);
+    pc2.nonce = Some([0xab; 32]); // nonce allows equal timestamps
+    let stmtc2 = Statement::sign_ed25519(&pc2, &sk).unwrap();
+
+    let store6c = ChainStore6 { key: vk, log_key, chain: chain6c };
+    let result_c = verify_statement_with_warnings(stmtc2.to_bytes(), &store6c);
+    match &result_c {
+        Ok((_, _warnings)) => {} // expected
+        other => panic!("6c equal ts with nonce: expected Ok, got {other:?}"),
+    }
+}
